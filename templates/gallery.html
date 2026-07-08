@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}照片库 · InkMemories{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <h1>🖼️ 照片库</h1>
+    <p>共 {{ total }} 张照片</p>
+</section>
+
+<div class="gallery-controls">
+    <div class="sort-group">
+        排序：
+        <a href="?order=memory_score+DESC" class="{% if current_order == 'memory_score DESC' %}active{% endif %}">回忆分↓</a>
+        <a href="?order=beauty_score+DESC" class="{% if current_order == 'beauty_score DESC' %}active{% endif %}">美观分↓</a>
+        <a href="?order=exif_datetime+DESC" class="{% if current_order == 'exif_datetime DESC' %}active{% endif %}">时间↓</a>
+        <a href="?order=analyzed_at+DESC" class="{% if current_order == 'analyzed_at DESC' %}active{% endif %}">最近分析</a>
+    </div>
+    <div class="type-filter">
+        筛选：
+        <a href="/gallery" class="{% if not current_type %}active{% endif %}">全部</a>
+        {% for t in ["人物", "孩子", "猫咪", "家庭", "旅行", "风景", "美食", "宠物", "日常"] %}
+        <a href="/gallery?type={{ t }}" class="{% if current_type == t %}active{% endif %}">{{ t }}</a>
+        {% endfor %}
+    </div>
+</div>
+
+<section class="gallery-grid">
+    {% for photo in photos %}
+    <div class="photo-card" data-path="{{ photo.path }}">
+        <div class="photo-image">
+            <img src="/photo/{{ photo.path.lstrip('/') }}" alt=""
+                 loading="lazy" onerror="this.parentElement.innerHTML='<div class=img-placeholder>📷</div>'">
+        </div>
+        <div class="photo-info">
+            {% if photo.side_caption %}
+            <p class="side-caption">"{{ photo.side_caption }}"</p>
+            {% endif %}
+            <div class="photo-meta">
+                <span class="type-badge">{{ photo.type }}</span>
+                <span class="score memory">{{ "%.0f"|format(photo.memory_score) }}</span>
+                <span class="score beauty">{{ "%.0f"|format(photo.beauty_score) }}</span>
+                {% if photo.exif_datetime %}
+                <span class="date-badge">{{ photo.exif_datetime[:10] }}</span>
+                {% endif %}
+                <button class="btn-edit" onclick="openEditModal('{{ photo.path }}')" title="编辑评分/标签">✏️</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</section>
+
+{% if total_pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+    <a href="?page={{ page-1 }}&order={{ current_order }}&type={{ current_type }}" class="btn">← 上一页</a>
+    {% endif %}
+    <span class="page-info">{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a href="?page={{ page+1 }}&order={{ current_order }}&type={{ current_type }}" class="btn">下一页 →</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

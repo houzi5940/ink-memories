@@ -1,0 +1,33 @@
+version: "3.8"
+
+services:
+  ink-memories:
+    build: .
+    image: ink-memories:latest
+    container_name: ink-memories
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      # 照片目录（修改为你的实际路径）
+      - /path/to/your/photos:/photos:ro
+      # 数据持久化
+      - ./data:/data
+    environment:
+      # VLM API 配置（根据实际情况修改）
+      - VLM_API_URL=${VLM_API_URL:-https://api.deepseek.com/v1/chat/completions}
+      - VLM_API_KEY=${VLM_API_KEY:-}
+      - VLM_MODEL=${VLM_MODEL:-deepseek-chat}
+      # 分析参数
+      - CONCURRENCY=${CONCURRENCY:-2}
+      - BATCH_LIMIT=${BATCH_LIMIT:-0}
+      - TIMEOUT=${TIMEOUT:-120}
+      # WebUI 端口
+      - WEB_PORT=8765
+    command: ["server"]
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

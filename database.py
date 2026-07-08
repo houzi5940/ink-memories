@@ -1,0 +1,241 @@
+"""SQLite 数据库操作"""
+
+import sqlite3
+import json
+from contextlib import contextmanager
+
+import config
+
+
+def init_db():
+    """初始化数据库，创建表结构"""
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS photo_scores (
+                path            TEXT PRIMARY KEY,
+                caption         TEXT,
+                type            TEXT,
+                memory_score    REAL,
+                beauty_score    REAL,
+                reason          TEXT,
+                side_caption    TEXT,
+                width           INTEGER,
+                height          INTEGER,
+                orientation     TEXT,
+                exif_datetime   TEXT,
+                exif_make       TEXT,
+                exif_model      TEXT,
+                exif_iso        INTEGER,
+                exif_exposure_time REAL,
+                exif_f_number   REAL,
+                exif_focal_length REAL,
+                exif_gps_lat    REAL,
+                exif_gps_lon    REAL,
+                exif_gps_alt    REAL,
+                exif_city       TEXT,
+                exif_json       TEXT,
+                raw_json        TEXT,
+                used_at         TEXT,
+                analyzed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_memory_score
+            ON photo_scores(memory_score DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exif_datetime
+            ON photo_scores(exif_datetime)
+        """)
+
+        # 每日精选描述缓存
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_captions (
+                photo_path  TEXT NOT NULL,
+                date        TEXT NOT NULL,
+                caption     TEXT NOT NULL,
+                side_caption TEXT,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (photo_path, date)
+            )
+        """)
+        conn.commit()
+
+
+@contextmanager
+def get_conn():
+    """获取数据库连接"""
+    conn = sqlite3.connect(config.DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def get_analyzed_paths():
+    """获取已分析的照片路径集合"""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT path FROM photo_scores").fetchall()
+        return {row["path"] for row in rows}
+
+
+def insert_photo(photo: dict):
+    """插入一条照片分析记录"""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO photo_scores
+            (path, caption, type, memory_score, beauty_score, reason,
+             side_caption, width, height, orientation,
+             exif_datetime, exif_make, exif_model,
+             exif_iso, exif_exposure_time, exif_f_number, exif_focal_length,
+             exif_gps_lat, exif_gps_lon, exif_gps_alt, exif_city,
+             exif_json, raw_json, analyzed_at)
+            VALUES
+            (:path, :caption, :type, :memory_score, :beauty_score, :reason,
+             :side_caption, :width, :height, :orientation,
+             :exif_datetime, :exif_make, :exif_model,
+             :exif_iso, :exif_exposure_time, :exif_f_number, :exif_focal_length,
+             :exif_gps_lat, :exif_gps_lon, :exif_gps_alt, :exif_city,
+             :exif_json, :raw_json, CURRENT_TIMESTAMP)
+        """, photo)
+        conn.commit()
+
+
+def update_photo(path: str, updates: dict):
+    """更新照片的评分/标签/旁白（仅更新非空字段）"""
+    allowed = {"memory_score", "beauty_score", "type", "side_caption", "caption", "reason"}
+    fields = {k: v for k, v in updates.items() if k in allowed and v is not None}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [path]
+    with get_conn() as conn:
+        conn.execute(f"UPDATE photo_scores SET {set_clause} WHERE path = ?", values)
+        conn.commit()
+
+
+def get_photo_by_path(path: str) -> dict | None:
+    """按路径获取单张照片"""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM photo_scores WHERE path = ?", (path,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_photos_by_date(month_day: str):
+    """按 MM-DD 查询历年同一天的照片"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM photo_scores
+            WHERE substr(exif_datetime, 6, 5) = ?
+            AND memory_score >= ?
+            ORDER BY memory_score DESC
+        """, (month_day, config.MEMORY_THRESHOLD)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_top_photos(limit=5):
+    """获取全库最高分照片（兜底）"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM photo_scores
+            WHERE memory_score >= ?
+            ORDER BY memory_score DESC
+            LIMIT ?
+        """, (config.MEMORY_THRESHOLD, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC"):
+    """获取所有照片"""
+    with get_conn() as conn:
+        safe_orders = {"analyzed_at DESC", "analyzed_at ASC", "memory_score DESC",
+                       "memory_score ASC", "beauty_score DESC", "beauty_score ASC",
+                       "exif_datetime DESC", "exif_datetime ASC"}
+        if order_by not in safe_orders:
+            order_by = "analyzed_at DESC"
+        sql = f"SELECT * FROM photo_scores ORDER BY {order_by}"
+        if limit:
+            sql += f" LIMIT {limit} OFFSET {offset}"
+        rows = conn.execute(sql).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_photo_count():
+    """获取总照片数"""
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) as cnt FROM photo_scores").fetchone()
+        return row["cnt"]
+
+
+def get_type_distribution():
+    """获取照片类型分布"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT type, COUNT(*) as cnt, AVG(memory_score) as avg_score
+            FROM photo_scores
+            GROUP BY type
+            ORDER BY cnt DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+def get_score_distribution():
+    """获取评分分布"""
+    buckets = [(0, 40), (40, 60), (60, 70), (70, 80), (80, 90), (90, 101)]
+    result = []
+    with get_conn() as conn:
+        for low, high in buckets:
+            row = conn.execute("""
+                SELECT COUNT(*) as cnt FROM photo_scores
+                WHERE memory_score >= ? AND memory_score < ?
+            """, (low, high)).fetchone()
+            result.append({
+                "range": f"{low}-{high-1 if high <= 100 else 100}",
+                "count": row["cnt"]
+            })
+    return result
+
+
+def search_photos(keyword: str, limit=50):
+    """按关键词搜索照片描述"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT * FROM photo_scores
+            WHERE caption LIKE ? OR reason LIKE ? OR side_caption LIKE ? OR type LIKE ?
+            ORDER BY memory_score DESC
+            LIMIT ?
+        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ============================================================
+# 每日精选描述缓存
+# ============================================================
+
+def save_daily_caption(photo_path: str, date: str, caption: str, side_caption: str = None):
+    """保存当日精选描述"""
+    with get_conn() as conn:
+        conn.execute("""
+            INSERT OR REPLACE INTO daily_captions (photo_path, date, caption, side_caption)
+            VALUES (?, ?, ?, ?)
+        """, (photo_path, date, caption, side_caption))
+        conn.commit()
+
+
+def get_daily_captions(date: str) -> dict:
+    """获取某天的所有精选描述"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT photo_path, caption, side_caption FROM daily_captions WHERE date = ?",
+            (date,)
+        ).fetchall()
+        return {row["photo_path"]: {"caption": row["caption"], "side_caption": row["side_caption"]}
+                for row in rows}
+
+
+def clear_daily_captions(date: str):
+    """清除某天的精选描述（用于重新生成）"""
+    with get_conn() as conn:
+        conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
+        conn.commit()
