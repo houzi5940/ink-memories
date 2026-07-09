@@ -110,15 +110,14 @@
 
     function saveEdit(event) {
         event.preventDefault();
-        var form = document.getElementById('editForm');
         var data = {
-            path: form.path.value,
-            memory_score: parseFloat(form.memory_score.value),
-            beauty_score: parseFloat(form.beauty_score.value),
-            type: form.type.value,
-            side_caption: form.side.value,
-            caption: form.caption.value,
-            reason: form.reason.value,
+            path: document.getElementById('editPath').value,
+            memory_score: parseFloat(document.getElementById('editMemory').value),
+            beauty_score: parseFloat(document.getElementById('editBeauty').value),
+            type: document.getElementById('editType').value,
+            side_caption: document.getElementById('editSide').value,
+            caption: document.getElementById('editCaption').value,
+            reason: document.getElementById('editReason').value,
         };
 
         fetch('/api/photo/update', {
