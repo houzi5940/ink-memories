@@ -3,150 +3,154 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}InkMemories{% endblock %}</title>
+    <title>{% block title %}InkMoments{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    {% block extra_style %}{% endblock %}
 </head>
 <body>
-    <nav class="navbar">
-        <div class="container">
-            <a href="/" class="logo">📸 InkMemories</a>
-            <div class="nav-links">
-                <a href="/">今日精选</a>
-                <a href="/gallery">照片库</a>
-                <a href="/stats">统计</a>
-                <a href="/search">搜索</a>
-            </div>
-        </div>
-    </nav>
-    <main class="container">
-        {% block content %}{% endblock %}
-    </main>
 
-    <!-- 编辑弹窗 -->
-    <div id="editModal" class="modal" style="display:none">
-        <div class="modal-content">
-            <span class="modal-close" onclick="closeEditModal()">&times;</span>
-            <h2>✏️ 编辑照片</h2>
-            <div class="edit-preview" id="editPreview"></div>
-            <form id="editForm" onsubmit="saveEdit(event)">
-                <input type="hidden" id="editPath" name="path">
-
-                <label>回忆分 (0-100)</label>
-                <div class="slider-group">
-                    <input type="range" id="editMemory" name="memory_score" min="0" max="100" value="50" oninput="editMemoryVal.textContent=this.value">
-                    <span id="editMemoryVal">50</span>
-                </div>
-
-                <label>美观分 (0-100)</label>
-                <div class="slider-group">
-                    <input type="range" id="editBeauty" name="beauty_score" min="0" max="100" value="50" oninput="editBeautyVal.textContent=this.value">
-                    <span id="editBeautyVal">50</span>
-                </div>
-
-                <label>分类标签</label>
-                <select id="editType" name="type">
-                    {% for t in ["人物/毕业","人物/孩子","人物/家庭","人物/情侣","人物/自拍","人物",
-                                 "猫咪","狗狗","宠物","旅行","风景","美食","日常","夜景","城市",
-                                 "植物","物体","文档","其他"] %}
-                    <option value="{{ t }}">{{ t }}</option>
-                    {% endfor %}
-                </select>
-
-                <label>旁白文案</label>
-                <input type="text" id="editSide" name="side_caption" placeholder="一句旁白" maxlength="30">
-
-                <label>描述（可选）</label>
-                <textarea id="editCaption" name="caption" rows="2" placeholder="照片描述"></textarea>
-
-                <label>评分理由</label>
-                <input type="text" id="editReason" name="reason" placeholder="简短理由">
-
-                <div class="edit-actions">
-                    <button type="submit" class="btn btn-primary">保存</button>
-                    <button type="button" class="btn" onclick="closeEditModal()">取消</button>
-                </div>
-            </form>
-            <div id="editResult" class="edit-result"></div>
+<nav class="nav">
+    <div class="nav-inner">
+        <a href="/" class="nav-logo">📷 <span>InkMoments</span></a>
+        <div class="nav-links">
+            <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}">今日</a>
+            <a href="/gallery" class="nav-link {% if request.path == '/gallery' %}active{% endif %}">相册</a>
+            <a href="/stats" class="nav-link {% if request.path == '/stats' %}active{% endif %}">统计</a>
+            <a href="/search" class="nav-link {% if request.path == '/search' %}active{% endif %}">搜索</a>
         </div>
     </div>
+</nav>
 
-    <footer>
-        <div class="container">
-            <p>InkMemories — 让沉睡的记忆重新被看见</p>
+<main class="main">
+    {% block content %}{% endblock %}
+</main>
+
+<!-- Lightbox -->
+<div id="lightbox" class="lightbox" onclick="closeLightbox()">
+    <span class="lightbox-close">&times;</span>
+    <img id="lightbox-img" class="lightbox-img" src="" alt="">
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeEditModal()">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>✏️ 编辑照片</h2>
+            <span class="modal-x" onclick="closeEditModal()">&times;</span>
         </div>
-    </footer>
+        <div class="modal-body">
+            <div id="editPreview" class="edit-preview"></div>
+            <form id="editForm" onsubmit="saveEdit(event)">
+                <input type="hidden" id="editPath">
+                <div class="form-group">
+                    <label>回忆分 · <span id="editMemoryVal">50</span></label>
+                    <input type="range" id="editMemory" min="0" max="100" value="50" oninput="editMemoryVal.textContent=this.value">
+                </div>
+                <div class="form-group">
+                    <label>美观分 · <span id="editBeautyVal">50</span></label>
+                    <input type="range" id="editBeauty" min="0" max="100" value="50" oninput="editBeautyVal.textContent=this.value">
+                </div>
+                <div class="form-group">
+                    <label>分类</label>
+                    <select id="editType">
+                        {% for t in ["人物/毕业","人物/孩子","人物/家庭","人物/情侣","人物/自拍","人物","猫咪","狗狗","宠物","旅行","风景","美食","日常","夜景","城市","植物","物体","文档","其他"] %}
+                        <option value="{{ t }}">{{ t }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>旁白</label>
+                    <input type="text" id="editSide" placeholder="一句旁白" maxlength="40">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>描述</label>
+                        <textarea id="editCaption" rows="2" placeholder="照片描述"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>理由</label>
+                        <input type="text" id="editReason" placeholder="简短理由">
+                    </div>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn btn-ghost" onclick="closeEditModal()">取消</button>
+                </div>
+                <div id="editResult" class="edit-result"></div>
+            </form>
+        </div>
+    </div>
+</div>
 
-    <script>
-    function openEditModal(path) {
-        document.getElementById('editPath').value = path;
-        document.getElementById('editResult').textContent = '';
-        document.getElementById('editResult').className = 'edit-result';
+<script>
+function openLightbox(src) {
+    document.getElementById('lightbox-img').src = src;
+    document.getElementById('lightbox').style.display = 'flex';
+}
+function closeLightbox() {
+    document.getElementById('lightbox').style.display = 'none';
+}
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') { closeLightbox(); closeEditModal(); }
+});
 
-        fetch('/api/photo/detail?path=' + encodeURIComponent(path))
-            .then(r => r.json())
-            .then(data => {
-                if (data.error) { alert(data.error); return; }
-                document.getElementById('editMemory').value = data.memory_score || 50;
-                document.getElementById('editMemoryVal').textContent = data.memory_score || 50;
-                document.getElementById('editBeauty').value = data.beauty_score || 50;
-                document.getElementById('editBeautyVal').textContent = data.beauty_score || 50;
-                document.getElementById('editType').value = data.type || '日常';
-                document.getElementById('editSide').value = data.side_caption || '';
-                document.getElementById('editCaption').value = data.caption || '';
-                document.getElementById('editReason').value = data.reason || '';
+function openEditModal(path) {
+    document.getElementById('editPath').value = path;
+    document.getElementById('editResult').textContent = '';
+    var img = document.getElementById('editPreview');
+    var cleanPath = path.replace(/^\//, '');
+    img.innerHTML = '<img src="/photo/' + encodeURI(cleanPath) + '" style="max-width:100%;max-height:200px;border-radius:10px;object-fit:cover">';
 
-                var preview = document.getElementById('editPreview');
-                var cleanPath = path.replace(/^\//, '');
-                preview.innerHTML = '<img src="/photo/' + encodeURI(cleanPath) + '" style="max-width:200px;max-height:150px;border-radius:8px;object-fit:cover">';
-            });
-
-        document.getElementById('editModal').style.display = 'block';
-    }
-
-    function closeEditModal() {
-        document.getElementById('editModal').style.display = 'none';
-    }
-
-    function saveEdit(event) {
-        event.preventDefault();
-        var data = {
-            path: document.getElementById('editPath').value,
-            memory_score: parseFloat(document.getElementById('editMemory').value),
-            beauty_score: parseFloat(document.getElementById('editBeauty').value),
-            type: document.getElementById('editType').value,
-            side_caption: document.getElementById('editSide').value,
-            caption: document.getElementById('editCaption').value,
-            reason: document.getElementById('editReason').value,
-        };
-
-        fetch('/api/photo/update', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(data),
-        })
+    fetch('/api/photo/detail?path=' + encodeURIComponent(path))
         .then(r => r.json())
-        .then(result => {
-            var el = document.getElementById('editResult');
-            if (result.error) {
-                el.textContent = '❌ ' + result.error;
-                el.className = 'edit-result error';
-            } else {
-                el.textContent = '✅ 保存成功！';
-                el.className = 'edit-result success';
-                setTimeout(function() {
-                    location.reload();
-                }, 1000);
-            }
+        .then(d => {
+            if (d.error) { alert(d.error); return; }
+            document.getElementById('editMemory').value = d.memory_score || 50;
+            document.getElementById('editMemoryVal').textContent = d.memory_score || 50;
+            document.getElementById('editBeauty').value = d.beauty_score || 50;
+            document.getElementById('editBeautyVal').textContent = d.beauty_score || 50;
+            document.getElementById('editType').value = d.type || '日常';
+            document.getElementById('editSide').value = d.side_caption || '';
+            document.getElementById('editCaption').value = d.caption || '';
+            document.getElementById('editReason').value = d.reason || '';
         });
-    }
-
-    // 点击弹窗外部关闭
-    window.onclick = function(event) {
-        var modal = document.getElementById('editModal');
-        if (event.target == modal) closeEditModal();
-    }
-    </script>
-    {% block scripts %}{% endblock %}
+    document.getElementById('editModal').style.display = 'block';
+}
+function closeEditModal() {
+    document.getElementById('editModal').style.display = 'none';
+}
+function saveEdit(e) {
+    e.preventDefault();
+    var data = {
+        path: document.getElementById('editPath').value,
+        memory_score: parseFloat(document.getElementById('editMemory').value),
+        beauty_score: parseFloat(document.getElementById('editBeauty').value),
+        type: document.getElementById('editType').value,
+        side_caption: document.getElementById('editSide').value,
+        caption: document.getElementById('editCaption').value,
+        reason: document.getElementById('editReason').value,
+    };
+    fetch('/api/photo/update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    })
+    .then(r => r.json())
+    .then(result => {
+        var el = document.getElementById('editResult');
+        if (result.error) {
+            el.innerHTML = '❌ ' + result.error;
+            el.className = 'edit-result error';
+        } else {
+            el.innerHTML = '✅ 已保存';
+            el.className = 'edit-result success';
+            el.style.display = 'block';
+            setTimeout(function(){ location.reload(); }, 800);
+        }
+    });
+}
+</script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,56 +1,48 @@
 {% extends "base.html" %}
-{% block title %}统计 · InkMemories{% endblock %}
+{% block title %}统计 · InkMoments{% endblock %}
 
 {% block content %}
-<section class="page-header">
-    <h1>📊 照片统计</h1>
-    <p>数据库共 {{ total }} 张照片</p>
-</section>
 
-<div class="stats-grid">
-    <div class="stat-card">
-        <h3>📂 照片类型分布</h3>
-        <div class="bar-chart">
-            {% for t in types %}
-            <div class="bar-row">
-                <span class="bar-label">{{ t.type or '未知' }}</span>
-                <div class="bar-track">
-                    <div class="bar-fill" style="width: {{ (t.cnt / total * 100) if total else 0 }}%"></div>
-                </div>
-                <span class="bar-value">{{ t.cnt }} ({{ "%.0f"|format(t.avg_score) }}分)</span>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-
-    <div class="stat-card">
-        <h3>⭐ 回忆分分布</h3>
-        <div class="bar-chart">
-            {% for s in scores %}
-            <div class="bar-row">
-                <span class="bar-label">{{ s.range }}</span>
-                <div class="bar-track">
-                    <div class="bar-fill score-bar" style="width: {{ (s.count / total * 100) if total else 0 }}%"></div>
-                </div>
-                <span class="bar-value">{{ s.count }}</span>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
+<div class="page-header">
+  <h1>📊 统计</h1>
+  <p class="sub">共 {{ total }} 张照片</p>
 </div>
 
-<section class="actions">
-    <button onclick="triggerAnalyze()" class="btn btn-primary">🔄 分析新照片</button>
-    <a href="/" class="btn">← 返回首页</a>
-</section>
-{% endblock %}
+{% if total > 0 %}
+<div class="stats-grid">
+  <div class="stat-card">
+    <h3>📂 类型分布</h3>
+    <div class="bar-chart">
+      {% for t in types %}
+      <div class="bar-row">
+        <span class="bar-label">{{ t.type or '未知' }}</span>
+        <div class="bar-track">
+          <div class="bar-fill" style="width: {{ (t.cnt / total * 100) if total else 0 }}%"></div>
+        </div>
+        <span class="bar-value">{{ t.cnt }} · {{ "%.0f"|format(t.avg_score) }}分</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="stat-card">
+    <h3>⭐ 回忆分分布</h3>
+    <div class="bar-chart">
+      {% for s in scores %}
+      <div class="bar-row">
+        <span class="bar-label">{{ s.range }}</span>
+        <div class="bar-track">
+          <div class="bar-fill green" style="width: {{ (s.count / total * 100) if total else 0 }}%"></div>
+        </div>
+        <span class="bar-value">{{ s.count }}张</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
 
-{% block scripts %}
-<script>
-function triggerAnalyze() {
-    fetch('/api/analyze', {method: 'POST'})
-        .then(r => r.json())
-        .then(d => alert(d.message));
-}
-</script>
+<div class="stats-actions">
+  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>alert(d.message))" class="btn btn-primary">🔄 分析新照片</button>
+  <a href="/" class="btn btn-ghost">← 返回</a>
+</div>
 {% endblock %}

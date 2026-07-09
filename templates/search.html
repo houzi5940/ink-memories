@@ -1,39 +1,47 @@
 {% extends "base.html" %}
-{% block title %}搜索 · InkMemories{% endblock %}
+{% block title %}搜索 · InkMoments{% endblock %}
 
 {% block content %}
-<section class="page-header">
-    <h1>🔍 搜索照片</h1>
-</section>
+
+<div class="page-header">
+  <h1>🔍 搜索</h1>
+</div>
 
 <form class="search-form" action="/search" method="get">
-    <input type="text" name="q" value="{{ query }}" placeholder="输入关键词（描述、类型、地点...）" class="search-input" autofocus>
-    <button type="submit" class="btn btn-primary">搜索</button>
+  <input type="text" name="q" value="{{ query }}" placeholder="搜索描述、类型、地点..." class="search-input" autofocus>
+  <button type="submit" class="btn btn-primary">搜索</button>
 </form>
 
 {% if query %}
-<p class="search-result-count">找到 {{ photos|length }} 张相关照片</p>
+<p class="search-count">找到 {{ photos|length }} 张相关照片</p>
 
-<section class="gallery-grid">
-    {% for photo in photos %}
-    <div class="photo-card" data-path="{{ photo.path }}">
-        <div class="photo-image">
-            <img src="/photo/{{ photo.path.lstrip('/') }}" alt=""
-                 loading="lazy" onerror="this.parentElement.innerHTML='<div class=img-placeholder>📷</div>'">
-        </div>
-        <div class="photo-info">
-            {% if photo.side_caption %}
-            <p class="side-caption">"{{ photo.side_caption }}"</p>
-            {% endif %}
-            <div class="photo-meta">
-                <span class="type-badge">{{ photo.type }}</span>
-                <span class="score memory">{{ "%.0f"|format(photo.memory_score) }}</span>
-                <span class="score beauty">{{ "%.0f"|format(photo.beauty_score) }}</span>
-                <button class="btn-edit" onclick="openEditModal('{{ photo.path }}')" title="编辑评分/标签">✏️</button>
-            </div>
-        </div>
+{% if photos %}
+<div class="photo-grid">
+  {% for photo in photos %}
+  <div class="photo-card">
+    <div class="img-wrap" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
+      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
     </div>
-    {% endfor %}
-</section>
+    <div class="card-body">
+      {% if photo.side_caption %}
+      <div class="card-caption">"{{ photo.side_caption }}"</div>
+      {% endif %}
+      <div class="card-meta">
+        <span class="tag">{{ photo.type }}</span>
+        <span class="score mem">{{ "%.0f"|format(photo.memory_score) }}</span>
+        <span class="score bea">{{ "%.0f"|format(photo.beauty_score) }}</span>
+      </div>
+    </div>
+    <button class="card-edit" onclick="event.stopPropagation(); openEditModal('{{ photo.path }}')" title="编辑">✎</button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state">
+  <div class="icon">🔍</div>
+  <h2>未找到</h2>
+  <p>没有匹配 "{{ query }}" 的照片</p>
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}

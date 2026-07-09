@@ -1,59 +1,50 @@
 {% extends "base.html" %}
-{% block title %}今日精选 · InkMemories{% endblock %}
+{% block title %}今日 · InkMoments{% endblock %}
 
 {% block content %}
-<section class="daily-header">
-    <h1>📅 {{ summary.date }} · {{ summary.weekday }}</h1>
-    <p class="subtitle">从过去的今天，找回值得再看一眼的照片</p>
-    <p class="meta">数据库共 {{ summary.total_in_db }} 张照片</p>
-</section>
+
+<div class="daily-header">
+  <p class="daily-date">{{ summary.date }} {{ summary.weekday }}</p>
+  <h1>今天的回忆</h1>
+  <p class="daily-sub">从过去的今天，找回值得再看一眼的照片 · 共 {{ summary.total_in_db }} 张</p>
+</div>
 
 {% if summary.photos %}
-<section class="daily-grid">
-    {% for photo in summary.photos %}
-    <div class="photo-card daily-card" data-path="{{ photo.path }}">
-        <div class="photo-image">
-            <img src="/photo/{{ photo.path.lstrip('/') }}" alt="{{ (photo.daily_caption or photo.caption or '')[:50] }}"
-                 loading="lazy" onerror="this.parentElement.innerHTML='<div class=img-placeholder>📷</div>'">
-        </div>
-        <div class="photo-info">
-            {% if photo.daily_side_caption %}
-            <p class="side-caption">"{{ photo.daily_side_caption }}"</p>
-            {% endif %}
-            <p class="photo-desc daily-caption">{{ photo.daily_caption or photo.caption }}</p>
-            <div class="photo-meta">
-                <span class="type-badge" id="type-{{ loop.index }}">{{ photo.type }}</span>
-                <span class="score memory">回忆 <span class="score-val">{{ "%.0f"|format(photo.memory_score) }}</span></span>
-                <span class="score beauty">美观 <span class="score-val">{{ "%.0f"|format(photo.beauty_score) }}</span></span>
-                {% if photo.exif_datetime %}
-                <span class="date-badge">{{ photo.exif_datetime[:10] }}</span>
-                {% endif %}
-                {% if photo.exif_city %}
-                <span class="location-badge">📍 {{ photo.exif_city }}</span>
-                {% endif %}
-                <button class="btn-edit" onclick="openEditModal('{{ photo.path }}')" title="编辑评分/标签">✏️</button>
-            </div>
-        </div>
+<div class="daily-list">
+  {% for photo in summary.photos %}
+  <div class="daily-item">
+    <div class="daily-img" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
+      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
     </div>
-    {% endfor %}
-</section>
+    <div class="daily-body">
+      {% if photo.daily_side_caption %}
+      <div class="daily-side">"{{ photo.daily_side_caption }}"</div>
+      {% endif %}
+      {% if photo.daily_caption %}
+      <div class="daily-desc">{{ photo.daily_caption }}</div>
+      {% endif %}
+      <div class="daily-meta">
+        <span class="tag">{{ photo.type }}</span>
+        <span class="score mem">{{ "%.0f"|format(photo.memory_score) }}</span>
+        <span class="score bea">{{ "%.0f"|format(photo.beauty_score) }}</span>
+        {% if photo.exif_datetime %}
+        <span class="date-tag">{{ photo.exif_datetime[:10] }}</span>
+        {% endif %}
+        {% if photo.exif_city %}
+        <span class="loc-tag">📍 {{ photo.exif_city }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <button class="card-edit" onclick="event.stopPropagation(); openEditModal('{{ photo.path }}')" title="编辑">✎</button>
+  </div>
+  {% endfor %}
+</div>
 {% else %}
-<section class="empty-state">
-    <h2>📭 暂无精选</h2>
-    <p>还没有足够的照片数据，请先运行照片分析。</p>
-    <button onclick="triggerAnalyze()" class="btn btn-primary">开始分析</button>
-</section>
+<div class="empty-state">
+  <div class="icon">📸</div>
+  <h2>暂无精选</h2>
+  <p>还没有足够的照片数据，请先运行照片分析。</p>
+  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>alert(d.message))" class="btn btn-primary">开始分析</button>
+</div>
 {% endif %}
-{% endblock %}
-
-{% block scripts %}
-<script>
-function triggerAnalyze() {
-    fetch('/api/analyze', {method: 'POST'})
-        .then(r => r.json())
-        .then(d => {
-            alert(d.message || '已启动');
-        });
-}
-</script>
 {% endblock %}
