@@ -5,14 +5,14 @@ import os
 # ============================================================
 # 照片源
 # ============================================================
-PHOTO_DIR = "/photos"  # Docker 容器内挂载路径
+PHOTO_DIR = os.environ.get("PHOTO_DIR", "/photos")  # Docker 容器内挂载路径
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".heic", ".heif"}
 EXCLUDE_DIRS = ["@eaDir", "#recycle", "@__thumb", "@SynoPhotoParcel"]
 
 # ============================================================
 # 数据库
 # ============================================================
-DB_PATH = "/data/photos.db"  # Docker 容器内持久化路径
+DB_PATH = os.environ.get("DB_PATH", "/data/photos.db")  # Docker 容器内持久化路径
 
 # ============================================================
 # VLM API 配置（支持多通道轮询 + 故障转移）

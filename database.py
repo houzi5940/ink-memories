@@ -88,7 +88,19 @@ def get_analyzed_paths():
 
 
 def insert_photo(photo: dict):
-    """插入一条照片分析记录"""
+    """插入一条照片分析记录（缺失的可选字段补 NULL）"""
+    # 确保所有 SQL 占位字段都存在，避免绑定参数缺失报错
+    defaults = {
+        "caption": None, "side_caption": None, "reason": None,
+        "type": None, "memory_score": None, "beauty_score": None,
+        "width": None, "height": None, "orientation": None,
+        "exif_datetime": None, "exif_make": None, "exif_model": None,
+        "exif_iso": None, "exif_exposure_time": None, "exif_f_number": None,
+        "exif_focal_length": None, "exif_gps_lat": None, "exif_gps_lon": None,
+        "exif_gps_alt": None, "exif_city": None, "exif_json": "{}",
+        "raw_json": "{}", "perceptual_hash": None,
+    }
+    record = {**defaults, **photo}
     with get_conn() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO photo_scores
@@ -105,7 +117,7 @@ def insert_photo(photo: dict):
              :exif_iso, :exif_exposure_time, :exif_f_number, :exif_focal_length,
              :exif_gps_lat, :exif_gps_lon, :exif_gps_alt, :exif_city,
              :exif_json, :raw_json, :perceptual_hash, CURRENT_TIMESTAMP)
-        """, photo)
+        """, record)
         conn.commit()
 
 
