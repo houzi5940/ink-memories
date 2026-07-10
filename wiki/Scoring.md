@@ -74,3 +74,49 @@
 2. **描述 (daily_caption)**: 30-60 字，像老朋友翻相册时的感想
 
 每日使用的提示词会注入不同的随机种子，保证每次生成的文案风格不同。
+
+---
+
+## 相似照片去重
+
+基于**平均感知哈希**（aHash）的自动去重策略。
+
+### 哈希计算
+
+```python
+img = Image.open(path)
+img = ImageOps.exif_transpose(img)  # 校正旋转方向
+img = img.convert("L")              # 灰度
+img = img.resize((8, 8))            # 8×8 像素
+pixels = list(img.getdata())
+avg = sum(pixels) / len(pixels)
+hash = "".join("1" if p >= avg else "0" for p in pixels)
+# → 64 位二进制字符串
+```
+
+### 相似判定
+
+使用**海明距离**比较两张照片的哈希值：
+
+```python
+def hamming_distance(h1, h2):
+    return sum(c1 != c2 for c1, c2 in zip(h1, h2))
+```
+
+距离 ≤ `SIMILARITY_THRESHOLD`（默认 5/64）视为相似。
+
+### 降分策略
+
+```
+一组相似照片 [A, B, C, D]
+  评分: A=90, B=85, C=80, D=72
+
+保留最高分: A (90)
+其余降至:  B→10, C→10, D→10
+```
+
+**规则：**
+- 一组中只保留回忆分最高的那张
+- 其余全部降至 `SIMILARITY_PENALTY_SCORE`（默认 10 分）
+- 新照片可能成为最高分保留，也可能被已有高分照片降分
+- **不删除数据**，只降分处理

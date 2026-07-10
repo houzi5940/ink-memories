@@ -62,34 +62,61 @@ ink-memories/
 ### 照片分析流程
 
 ```
-1. scan_photos()         扫描目录，找出未分析的照片
-       │
-2. progress.start()      初始化进度追踪
-       │
-3. ThreadPoolExecutor    并发调用 VLM API
-   ├── encode_image()    压缩并 Base64 编码
-   ├── extract_exif()    提取 EXIF 信息
-   ├── call_vlm()        调用 VLM API 评分
-   ├── compute_avg_hash() 计算感知哈希
-   └── deduplicate()     相似照片去重
-       │
-4. insert_photo()        写入 SQLite
-       │
-5. progress.tick()       更新进度
+run_analysis()
+  │
+  ├─ 1. 初始化进度
+  │    pr.start_analysis()       → phase="scanning", total=0
+  │
+  ├─ 2. scan_photos()
+  │    os.walk(PHOTO_DIR)
+  │    ├─ 过滤后缀（.jpg/.png/.heic…）
+  │    ├─ 排除系统目录（@eaDir / #recycle…）
+  │    └─ 跳过已分析路径（增量）
+  │    → 返回新照片列表 []
+  │
+  ├─ 3. 更新进度
+  │    pr.start_analysis(total=N)  → phase="analyzing"
+  │
+  └─ 4. ThreadPoolExecutor (CONCURRENCY)
+       for each photo:
+         submit(analyze_one_photo, path)
+
+       as_completed:
+         ├─ analyze_one_photo()
+         │    ├─ encode_image()     读取→压缩→base64
+         │    ├─ extract_exif()     解析 EXIF→dict
+         │    ├─ call_vlm()         POST API→JSON
+         │    ├─ compute_avg_hash() aHash 64bit
+         │    └─ deduplicate()     相似去重→最终评分
+         │
+         ├─ insert_photo(record)   写入 SQLite
+         └─ pr.report_tick()       更新进度
+  │
+  └─ 5. pr.report_done()           → phase="done"
 ```
 
 ### 每日精选流程
 
 ```
-1. choose_photos_for_today()
-   ├── 策略1: 同月同日（历史上的今天）
-   ├── 策略2: 向前回退最多 365 天
-   └── 策略3: 全库最高分兜底
-       │
-2. _generate_daily_captions()
-   └── 调用 VLM 为每张照片生成全新描述
-       │
-3. save_daily_caption()  缓存到 database
+get_daily_summary()
+  │
+  ├─ choose_photos_for_today()
+  │    ├─ 策略1: 同月同日（历史上的今天）
+  │    │   database.get_photos_by_date(MM-DD)
+  │    │   WHERE memory_score >= MEMORY_THRESHOLD
+  │    │
+  │    ├─ 策略2: 向前回退最多 365 天
+  │    │   for offset in 1..365:
+  │    │     database.get_photos_by_date(prev_MM-DD)
+  │    │
+  │    └─ 策略3: 全库最高分兜底
+  │        database.get_top_photos(count×3)
+  │
+  ├─ 检查缓存
+  │    database.get_daily_captions(today)
+  │    未缓存的照片 → 调用 VLM 生成专属描述
+  │
+  └─ 返回 {date, weekday, photos[], total_in_db}
 ```
 
 ## 线程模型

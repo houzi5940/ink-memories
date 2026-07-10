@@ -162,6 +162,74 @@ python seed_local.py
 PHOTO_DIR=./test_photos DB_PATH=./data/photos.db python cli.py server
 ```
 
+## 🔬 照片分析流程详解
+
+### 完整调用链
+
+```
+run_analysis()              ← POST /api/analyze 或 python cli.py analyze
+  ├─ scan_photos()          ← 扫描目录，增量检测
+  └─ ThreadPoolExecutor(N)  ← 并发分析（CONCURRENCY）
+       └─ analyze_one_photo(path)
+            ├─ encode_image(path)         ← 读取→压缩→Base64
+            ├─ extract_exif(path)         ← EXIF 元数据提取
+            ├─ call_vlm(base64)           ← VLM API 评分
+            ├─ compute_avg_hash(path)     ← 感知哈希 (aHash)
+            └─ deduplicate_similar_photos() ← 相似去重
+```
+
+### 单张照片分析 (`analyze_one_photo`)
+
+**① 编码图片** — `encode_image(path)`
+- 读取原图，按 EXIF Orientation 校正旋转
+- 压缩到最长边 ≤ 2560px（配置项 `VLM_MAX_LONG_EDGE`）
+- RGBA/P 转 RGB，JPEG quality=85
+- 返回 base64 字符串 + 原始宽高
+
+**② 提取 EXIF** — `extract_exif(path)`
+- 解析拍摄时间（DateTimeOriginal → DateTimeDigitized → DateTime）
+- 相机型号（Make / Model）
+- 拍摄参数（ISO / 曝光时间 / 光圈 / 焦距）
+- GPS 坐标（经纬度 → 十进制度数，海拔）
+- 原始 EXIF 保存为 JSON 供后续扩展
+
+**③ VLM 评分** — `call_vlm(base64)`
+- 支持多通道故障转移：配置多个 API 通道时，一个失败自动切换
+- 遇 429 Too Many Requests 自动等待后重试
+- 模型返回需是严格 JSON：`{"type","memory_score","beauty_score","reason"}`
+- 自动清理 markdown 代码块包裹 (`\`\`\`json ... \`\`\``)
+
+**④ 感知哈希** — `compute_avg_hash(path)`
+- 平均哈希算法：灰度 → 8×8 → 64bit → 与均值比较 → 二进制字符串
+- 先校正 EXIF 旋转确保同场景不同朝向哈希一致
+
+**⑤ 相似去重** — `deduplicate_similar_photos()`
+- 将新照片哈希与库中所有有哈希的照片做海明距离比较
+- 距离 ≤ `SIMILARITY_THRESHOLD`（默认 5/64）视为相似
+- 一组相似照片只保留回忆分最高的一张，其余降至 `SIMILARITY_PENALTY_SCORE`（默认 10）
+- 新照片可能被保留，也可能被已有高分照片降分
+
+### 增量机制
+
+- `scan_photos()` 调用 `get_analyzed_paths()` 获取已分析的路径集合
+- 只在全路径不在集合中时加入待分析列表
+- 已分析的照片自动跳过，可随时中断重启
+
+### 故障转移
+
+```python
+channels = config.API_CHANNELS[:]    # 多通道配置
+for attempt in range(len(channels)):
+    channel = channels[attempt % len(channels)]
+    try:
+        POST channel 请求评分
+        if 429: time.sleep(2); continue   # 限流等待
+        return JSON 结果
+    except:
+        continue                           # 切下一个通道
+return {"error": last_error}              # 全部失败
+```
+
 ## 致谢
 
 - 核心 AI 提示词和评分思路来自 [InkTime](https://github.com/dai-hongtao/InkTime) by dai-hongtao
