@@ -1,8 +1,8 @@
 import * as React from "react"
-import { TagSelector } from "./TagSelector"
+import { TagSelector, type TagOption } from "./TagSelector"
 
 export interface TagSelectorState {
-  availableTags: string[]
+  availableTags: TagOption[]
   selectedTags: string[]
   disabled: boolean
 }

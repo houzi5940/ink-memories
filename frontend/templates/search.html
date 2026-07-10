@@ -19,8 +19,8 @@
 <div class="photo-grid">
   {% for photo in photos %}
   <div class="photo-card">
-    <div class="img-wrap" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
-      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
+    <div class="img-wrap{% if photo.height and photo.width and photo.height > photo.width %} portrait{% endif %}" onclick="openLightbox('/photo/{{ photo.path | relphoto }}')">
+      <img src="/photo/{{ photo.path | relphoto }}" alt="" loading="lazy">
     </div>
     <div class="card-body">
       {% if photo.side_caption %}

@@ -11,8 +11,11 @@ router = APIRouter()
 
 @router.get("/api/tags")
 def api_tags(db=Depends(get_db)):
-    """获取所有已存在的手动标签（用于编辑下拉选择）"""
-    return [t["tag"] for t in db.get_tag_distribution()]
+    """获取所有已存在的手动标签及其使用数量（用于编辑下拉选择）
+
+    返回形如 [{"tag": "旅行", "count": 5}, ...]，按使用数量降序。
+    """
+    return db.get_tag_distribution()
 
 
 @router.get("/api/status")

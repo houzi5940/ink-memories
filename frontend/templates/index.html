@@ -13,8 +13,8 @@
 <div class="daily-list">
   {% for photo in summary.photos %}
   <div class="daily-item">
-    <div class="daily-img" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
-      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
+    <div class="daily-img" onclick="openLightbox('/photo/{{ photo.path | relphoto }}')">
+      <img src="/photo/{{ photo.path | relphoto }}" alt="" loading="lazy">
     </div>
     <div class="daily-body">
       {% if photo.daily_side_caption %}
