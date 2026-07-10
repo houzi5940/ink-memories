@@ -641,59 +641,82 @@ body {
 .tag-chip:hover .tag-count { background: rgba(255,255,255,0.9); }
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; }
 
-/* 标签选择器（编辑弹窗） */
+/* 标签选择器（Ant Design 多选 Select 风格） */
 .tag-selector {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 8px 10px;
-  min-height: 44px;
+  position: relative;
+  width: 100%;
 }
-.selected-tags {
+.tag-selector-inner {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: text;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.tag-selector-inner:hover {
+  border-color: var(--accent);
+}
+.tag-selector-inner.focused,
+.tag-selector-inner:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
+}
+.selected-tags-inline {
+  display: contents;
 }
 .selected-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 3px 10px;
-  border-radius: 20px;
+  padding: 2px 8px;
+  border-radius: 4px;
   background: var(--accent-light);
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
   font-weight: 500;
 }
+.selected-tag .text { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selected-tag .remove {
   cursor: pointer;
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1;
   padding: 0 2px;
-  border-radius: 50%;
+  border-radius: 3px;
+  opacity: 0.75;
+  transition: opacity 0.15s, background 0.15s;
 }
-.selected-tag .remove:hover { background: rgba(232, 93, 58, 0.15); }
-.tag-input-wrap {
-  position: relative;
+.selected-tag .remove:hover {
+  opacity: 1;
+  background: rgba(232, 93, 58, 0.12);
 }
-.tag-input-wrap input {
-  width: 100%;
+.tag-selector-input {
+  flex: 1;
+  min-width: 60px;
+  max-width: 100%;
   border: none;
   background: transparent;
-  padding: 4px 0;
+  padding: 4px 2px;
   font-size: 0.9rem;
   color: var(--text);
   outline: none;
 }
+.tag-selector-input::placeholder { color: var(--text-muted); }
+
 .tag-dropdown {
   display: none;
   position: absolute;
   top: 100%;
   left: 0;
   right: 0;
-  margin-top: 6px;
-  max-height: 200px;
+  margin-top: 4px;
+  max-height: 220px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -703,11 +726,13 @@ body {
   overscroll-behavior: contain;
 }
 .tag-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   font-size: 0.85rem;
   color: var(--text);
   cursor: pointer;
-  border-bottom: 1px solid var(--border);
   transition: background 0.15s;
 }
 .tag-dropdown-item:last-child { border-bottom: none; }
@@ -715,9 +740,23 @@ body {
 .tag-dropdown-item.active {
   background: var(--surface-hover);
 }
+.tag-dropdown-item.selected {
+  color: var(--text-muted);
+  background: var(--bg);
+}
+.tag-dropdown-item.selected .check {
+  color: var(--accent);
+  font-weight: 700;
+}
 .tag-dropdown-item.create {
   color: var(--accent);
   font-weight: 500;
+}
+.tag-dropdown-item .check {
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+  font-size: 0.8rem;
 }
 .tag-dropdown-empty {
   padding: 12px;

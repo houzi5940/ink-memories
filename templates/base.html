@@ -76,11 +76,11 @@
                 <div class="form-group">
                     <label>标签</label>
                     <div class="tag-selector" id="tagSelector">
-                        <div class="selected-tags" id="selectedTags"></div>
-                        <div class="tag-input-wrap">
-                            <input type="text" id="editTagInput" placeholder="输入新标签或选择已有标签..." autocomplete="off">
-                            <div class="tag-dropdown" id="tagDropdown"></div>
+                        <div class="tag-selector-inner" id="tagSelectorInner">
+                            <div class="selected-tags-inline" id="selectedTags"></div>
+                            <input type="text" id="editTagInput" class="tag-selector-input" placeholder="请选择标签" autocomplete="off">
                         </div>
+                        <div class="tag-dropdown" id="tagDropdown"></div>
                     </div>
                 </div>
                 <div class="form-actions">
@@ -111,19 +111,21 @@ var tagActiveIndex = -1;
 
 function renderSelectedTags() {
     var container = document.getElementById('selectedTags');
+    var input = document.getElementById('editTagInput');
     container.innerHTML = '';
     currentTags.forEach(function(tag, idx) {
         var span = document.createElement('span');
         span.className = 'selected-tag';
-        span.innerHTML = tag + '<span class="remove" data-idx="' + idx + '" title="删除">&times;</span>';
+        span.innerHTML = '<span class="text">' + tag + '</span><span class="remove" data-idx="' + idx + '" title="删除">&times;</span>';
         container.appendChild(span);
     });
     container.querySelectorAll('.remove').forEach(function(btn) {
-        btn.onclick = function() {
+        btn.onclick = function(e) {
+            e.stopPropagation();
             currentTags.splice(parseInt(this.dataset.idx), 1);
             renderSelectedTags();
             renderTagDropdown(document.getElementById('editTagInput').value);
-            document.getElementById('editTagInput').focus();
+            input.focus();
         };
     });
 }
@@ -133,11 +135,8 @@ function renderTagDropdown(filter) {
     dropdown.innerHTML = '';
     tagActiveIndex = -1;
     var val = (filter || '').trim();
-    var matched = allTags.filter(function(t) {
-        return currentTags.indexOf(t) === -1 && (!val || t.indexOf(val) !== -1);
-    });
 
-    // 未命中时提供「新增标签」选项
+    // 未命中时提供「新建标签」选项
     if (val && currentTags.indexOf(val) === -1) {
         var createItem = document.createElement('div');
         createItem.className = 'tag-dropdown-item create';
@@ -147,12 +146,20 @@ function renderTagDropdown(filter) {
         dropdown.appendChild(createItem);
     }
 
+    // 展示所有已有标签，已选中的置灰并可再次点击取消
+    var matched = allTags.filter(function(t) {
+        return !val || t.indexOf(val) !== -1;
+    });
     matched.forEach(function(tag) {
         var item = document.createElement('div');
-        item.className = 'tag-dropdown-item';
-        item.textContent = tag;
+        var isSelected = currentTags.indexOf(tag) !== -1;
+        item.className = 'tag-dropdown-item' + (isSelected ? ' selected' : '');
+        item.innerHTML = '<span class="check">' + (isSelected ? '✓' : '') + '</span><span class="label">' + tag + '</span>';
         item.onmousedown = function(e) { e.preventDefault(); };
-        item.onclick = function() { addTag(tag); };
+        item.onclick = function() {
+            if (isSelected) removeTag(tag);
+            else addTag(tag);
+        };
         dropdown.appendChild(item);
     });
 
@@ -173,6 +180,14 @@ function addTag(tag) {
     document.getElementById('editTagInput').value = '';
     renderSelectedTags();
     renderTagDropdown('');
+    document.getElementById('editTagInput').focus();
+}
+
+function removeTag(tag) {
+    var idx = currentTags.indexOf(tag);
+    if (idx !== -1) currentTags.splice(idx, 1);
+    renderSelectedTags();
+    renderTagDropdown(document.getElementById('editTagInput').value);
     document.getElementById('editTagInput').focus();
 }
 
@@ -229,8 +244,18 @@ function closeEditModal() {
 document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('editTagInput');
     var dropdown = document.getElementById('tagDropdown');
+    var inner = document.getElementById('tagSelectorInner');
     var overlay = document.getElementById('editModal');
     if (!input) return;
+
+    // 点击选择框内部聚焦输入框
+    if (inner) {
+        inner.addEventListener('click', function(e) {
+            if (e.target === inner || e.target.classList.contains('selected-tags-inline')) {
+                input.focus();
+            }
+        });
+    }
 
     input.addEventListener('input', function() {
         renderTagDropdown(this.value);
@@ -253,6 +278,11 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             if (tagActiveIndex > 0) setActiveTagItem(tagActiveIndex - 1);
             else setActiveTagItem(items.length - 1);
+        } else if (e.key === 'Backspace' && !this.value && currentTags.length) {
+            e.preventDefault();
+            currentTags.pop();
+            renderSelectedTags();
+            renderTagDropdown(this.value);
         } else if (e.key === 'Escape') {
             dropdown.style.display = 'none';
             input.blur();
@@ -260,11 +290,13 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     input.addEventListener('focus', function() {
+        if (inner) inner.classList.add('focused');
         renderTagDropdown(this.value);
     });
 
     // 失焦时延迟关闭下拉框，避免点击选项时已被隐藏
     input.addEventListener('blur', function() {
+        if (inner) inner.classList.remove('focused');
         setTimeout(function() { dropdown.style.display = 'none'; }, 150);
     });
 
