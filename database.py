@@ -36,15 +36,18 @@ def init_db():
                 exif_json       TEXT,
                 raw_json        TEXT,
                 perceptual_hash TEXT,
+                tags            TEXT,  -- JSON 数组，如 ["旅行", "海边"]
                 used_at         TEXT,
                 analyzed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # 兼容旧数据库：新增 perceptual_hash 字段
+        # 兼容旧数据库：新增 perceptual_hash / tags 字段
         columns = {row[1] for row in conn.execute("PRAGMA table_info(photo_scores)").fetchall()}
         if "perceptual_hash" not in columns:
             conn.execute("ALTER TABLE photo_scores ADD COLUMN perceptual_hash TEXT")
+        if "tags" not in columns:
+            conn.execute("ALTER TABLE photo_scores ADD COLUMN tags TEXT")
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_memory_score
@@ -98,9 +101,12 @@ def insert_photo(photo: dict):
         "exif_iso": None, "exif_exposure_time": None, "exif_f_number": None,
         "exif_focal_length": None, "exif_gps_lat": None, "exif_gps_lon": None,
         "exif_gps_alt": None, "exif_city": None, "exif_json": "{}",
-        "raw_json": "{}", "perceptual_hash": None,
+        "raw_json": "{}", "perceptual_hash": None, "tags": None,
     }
     record = {**defaults, **photo}
+    # tags 以 list 传入时存为 JSON 字符串
+    if isinstance(record.get("tags"), (list, tuple, set)):
+        record["tags"] = json.dumps(list(record["tags"]), ensure_ascii=False)
     with get_conn() as conn:
         conn.execute("""
             INSERT OR REPLACE INTO photo_scores
@@ -109,14 +115,14 @@ def insert_photo(photo: dict):
              exif_datetime, exif_make, exif_model,
              exif_iso, exif_exposure_time, exif_f_number, exif_focal_length,
              exif_gps_lat, exif_gps_lon, exif_gps_alt, exif_city,
-             exif_json, raw_json, perceptual_hash, analyzed_at)
+             exif_json, raw_json, perceptual_hash, tags, analyzed_at)
             VALUES
             (:path, :caption, :type, :memory_score, :beauty_score, :reason,
              :side_caption, :width, :height, :orientation,
              :exif_datetime, :exif_make, :exif_model,
              :exif_iso, :exif_exposure_time, :exif_f_number, :exif_focal_length,
              :exif_gps_lat, :exif_gps_lon, :exif_gps_alt, :exif_city,
-             :exif_json, :raw_json, :perceptual_hash, CURRENT_TIMESTAMP)
+             :exif_json, :raw_json, :perceptual_hash, :tags, CURRENT_TIMESTAMP)
         """, record)
         conn.commit()
 
@@ -135,9 +141,20 @@ def get_all_photo_hashes() -> list[dict]:
 
 
 def update_photo(path: str, updates: dict):
-    """更新照片的评分/标签/旁白（仅更新非空字段）"""
-    allowed = {"memory_score", "beauty_score", "type", "side_caption", "caption", "reason", "perceptual_hash"}
+    """更新照片的评分/标签/旁白（仅更新非空字段；tags 传空列表可清空）"""
+    allowed = {"memory_score", "beauty_score", "type", "side_caption", "caption", "reason", "perceptual_hash", "tags"}
     fields = {k: v for k, v in updates.items() if k in allowed and v is not None}
+
+    # tags 以 list 传入时存为 JSON 字符串；空列表/空字符串表示清空标签
+    if "tags" in fields:
+        tags = fields["tags"]
+        if isinstance(tags, (list, tuple, set)):
+            fields["tags"] = json.dumps(list(tags), ensure_ascii=False) if tags else None
+        elif isinstance(tags, str):
+            fields["tags"] = tags.strip() or None
+        else:
+            fields["tags"] = None
+
     if not fields:
         return
     set_clause = ", ".join(f"{k} = ?" for k in fields)
@@ -212,6 +229,26 @@ def get_type_distribution():
         return [dict(r) for r in rows]
 
 
+def get_tag_distribution():
+    """获取手动标签分布（tags 字段为 JSON 数组）"""
+    with get_conn() as conn:
+        rows = conn.execute("""
+            SELECT tags FROM photo_scores WHERE tags IS NOT NULL AND tags != ''
+        """).fetchall()
+    counts = {}
+    for row in rows:
+        try:
+            tags = json.loads(row["tags"])
+            if isinstance(tags, list):
+                for tag in tags:
+                    tag = str(tag).strip()
+                    if tag:
+                        counts[tag] = counts.get(tag, 0) + 1
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return sorted([{"tag": k, "count": v} for k, v in counts.items()], key=lambda x: -x["count"])
+
+
 def get_score_distribution():
     """获取评分分布"""
     buckets = [(0, 40), (40, 60), (60, 70), (70, 80), (80, 90), (90, 101)]
@@ -230,14 +267,14 @@ def get_score_distribution():
 
 
 def search_photos(keyword: str, limit=50):
-    """按关键词搜索照片描述"""
+    """按关键词搜索照片描述、类型和标签"""
     with get_conn() as conn:
         rows = conn.execute("""
             SELECT * FROM photo_scores
-            WHERE caption LIKE ? OR reason LIKE ? OR side_caption LIKE ? OR type LIKE ?
+            WHERE caption LIKE ? OR reason LIKE ? OR side_caption LIKE ? OR type LIKE ? OR tags LIKE ?
             ORDER BY memory_score DESC
             LIMIT ?
-        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit)).fetchall()
+        """, (f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit)).fetchall()
         return [dict(r) for r in rows]
 
 

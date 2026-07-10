@@ -38,6 +38,18 @@
       {% endfor %}
     </div>
   </div>
+  <div class="stat-card">
+    <h3>🏷️ 手动标签</h3>
+    {% if tags %}
+    <div class="tag-cloud">
+      {% for t in tags %}
+      <a href="/gallery?tag={{ t.tag }}" class="tag-chip">{{ t.tag }} <span class="tag-count">{{ t.count }}</span></a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty-hint">还没有手动标签，可在照片编辑中添加。</p>
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 

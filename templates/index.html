@@ -23,6 +23,14 @@
       {% if photo.daily_caption %}
       <div class="daily-desc">{{ photo.daily_caption }}</div>
       {% endif %}
+      {% set user_tags = photo.tags | fromjson %}
+      {% if user_tags %}
+      <div class="card-tags">
+        {% for tag in user_tags %}
+        <a href="/gallery?tag={{ tag }}" class="user-tag">{{ tag }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="daily-meta">
         <span class="tag">{{ photo.type }}</span>
         <span class="score mem">{{ "%.0f"|format(photo.memory_score) }}</span>

@@ -73,6 +73,10 @@
                         <input type="text" id="editReason" placeholder="简短理由">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>标签（用逗号分隔）</label>
+                    <input type="text" id="editTags" placeholder="例如：旅行, 海边, 2023">
+                </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">保存</button>
                     <button type="button" class="btn btn-ghost" onclick="closeEditModal()">取消</button>
@@ -114,6 +118,9 @@ function openEditModal(path) {
             document.getElementById('editSide').value = d.side_caption || '';
             document.getElementById('editCaption').value = d.caption || '';
             document.getElementById('editReason').value = d.reason || '';
+            var tags = '';
+            try { tags = (JSON.parse(d.tags || '[]') || []).join(', '); } catch(e) {}
+            document.getElementById('editTags').value = tags;
         });
     document.getElementById('editModal').style.display = 'block';
 }
@@ -122,6 +129,7 @@ function closeEditModal() {
 }
 function saveEdit(e) {
     e.preventDefault();
+    var tags = document.getElementById('editTags').value;
     var data = {
         path: document.getElementById('editPath').value,
         memory_score: parseFloat(document.getElementById('editMemory').value),
@@ -130,6 +138,7 @@ function saveEdit(e) {
         side_caption: document.getElementById('editSide').value,
         caption: document.getElementById('editCaption').value,
         reason: document.getElementById('editReason').value,
+        tags: tags,
     };
     fetch('/api/photo/update', {
         method: 'POST',

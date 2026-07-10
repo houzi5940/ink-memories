@@ -15,6 +15,15 @@ app = Flask(__name__)
 logger = logging.getLogger(__name__)
 
 
+@app.template_filter("fromjson")
+def fromjson_filter(value):
+    """Jinja 过滤器：将 JSON 字符串解析为对象"""
+    try:
+        return json.loads(value) if value else []
+    except (TypeError, ValueError):
+        return []
+
+
 def init():
     """初始化数据库"""
     database.init_db()
@@ -43,11 +52,21 @@ def gallery():
     per_page = 20
     order = request.args.get("order", "memory_score DESC")
     photo_type = request.args.get("type", "")
+    tag = request.args.get("tag", "")
 
     if photo_type:
         # 按类型筛选
         photos = database.search_photos(photo_type, limit=per_page * 10)
         photos = [p for p in photos if photo_type in (p.get("type") or "")]
+        total = len(photos)
+        photos = photos[(page-1)*per_page : page*per_page]
+    elif tag:
+        # 按手动标签筛选
+        photos = database.search_photos(tag, limit=per_page * 10)
+        photos = [
+            p for p in photos
+            if tag in [t.strip() for t in (json.loads(p["tags"]) if p.get("tags") else [])]
+        ]
         total = len(photos)
         photos = photos[(page-1)*per_page : page*per_page]
     else:
@@ -62,7 +81,8 @@ def gallery():
                            total_pages=total_pages,
                            total=total,
                            current_order=order,
-                           current_type=photo_type)
+                           current_type=photo_type,
+                           current_tag=tag)
 
 
 @app.route("/stats")
@@ -71,7 +91,8 @@ def stats():
     return render_template("stats.html",
                            total=database.get_photo_count(),
                            types=database.get_type_distribution(),
-                           scores=database.get_score_distribution())
+                           scores=database.get_score_distribution(),
+                           tags=database.get_tag_distribution())
 
 
 @app.route("/search")
@@ -146,14 +167,20 @@ def api_photo_update():
 
     # 允许更新的字段
     updates = {}
-    for key in ("memory_score", "beauty_score", "type", "side_caption", "caption", "reason"):
-        if key in data and data[key] is not None and data[key] != "":
+    for key in ("memory_score", "beauty_score", "type", "side_caption", "caption", "reason", "tags"):
+        if key in data and data[key] is not None:
             val = data[key]
             if key in ("memory_score", "beauty_score"):
                 try:
                     val = float(val)
                     val = max(0, min(100, val))
                 except (ValueError, TypeError):
+                    continue
+            elif key == "tags":
+                # 支持数组或以逗号/空格分隔的字符串
+                if isinstance(val, str):
+                    val = [t.strip() for t in val.replace("，", ",").split(",") if t.strip()]
+                if not isinstance(val, list):
                     continue
             updates[key] = val
 
