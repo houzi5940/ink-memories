@@ -642,53 +642,37 @@ body {
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; }
 
 /* 标签选择器（Ant Design 多选 Select 风格） */
+/* 标签选择器（上下排版：已选标签在上，输入框在下） */
 .tag-selector {
   position: relative;
   width: 100%;
 }
-.tag-selector-inner {
+.selected-tags {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  min-height: 40px;
-  padding: 4px 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: text;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.tag-selector-inner:hover {
-  border-color: var(--accent);
-}
-.tag-selector-inner.focused,
-.tag-selector-inner:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-light);
-}
-.selected-tags-inline {
-  display: contents;
+  gap: 6px;
+  margin-bottom: 8px;
+  min-height: 0;
 }
 .selected-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 3px 10px;
+  border-radius: 20px;
   background: var(--accent-light);
   color: var(--accent);
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   line-height: 1.5;
   font-weight: 500;
 }
-.selected-tag .text { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selected-tag .text { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selected-tag .remove {
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 1rem;
   line-height: 1;
   padding: 0 2px;
-  border-radius: 3px;
+  border-radius: 50%;
   opacity: 0.75;
   transition: opacity 0.15s, background 0.15s;
 }
@@ -696,26 +680,37 @@ body {
   opacity: 1;
   background: rgba(232, 93, 58, 0.12);
 }
+.tag-input-wrap {
+  position: relative;
+}
 .tag-selector-input {
-  flex: 1;
-  min-width: 60px;
-  max-width: 100%;
-  border: none;
-  background: transparent;
-  padding: 4px 2px;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
   color: var(--text);
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.tag-selector-input:hover {
+  border-color: var(--accent);
+}
+.tag-selector-input:focus,
+.tag-input-wrap.focused .tag-selector-input {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-light);
 }
 .tag-selector-input::placeholder { color: var(--text-muted); }
 
 .tag-dropdown {
   display: none;
   position: absolute;
-  top: 100%;
   left: 0;
   right: 0;
-  margin-top: 4px;
   max-height: 220px;
   overflow-y: auto;
   background: var(--surface);

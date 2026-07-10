@@ -76,11 +76,11 @@
                 <div class="form-group">
                     <label>标签</label>
                     <div class="tag-selector" id="tagSelector">
-                        <div class="tag-selector-inner" id="tagSelectorInner">
-                            <div class="selected-tags-inline" id="selectedTags"></div>
-                            <input type="text" id="editTagInput" class="tag-selector-input" placeholder="请选择标签" autocomplete="off">
+                        <div class="selected-tags" id="selectedTags"></div>
+                        <div class="tag-input-wrap" id="tagInputWrap">
+                            <input type="text" id="editTagInput" class="tag-selector-input" placeholder="请选择或输入标签" autocomplete="off">
+                            <div class="tag-dropdown" id="tagDropdown"></div>
                         </div>
-                        <div class="tag-dropdown" id="tagDropdown"></div>
                     </div>
                 </div>
                 <div class="form-actions">
@@ -113,12 +113,17 @@ function renderSelectedTags() {
     var container = document.getElementById('selectedTags');
     var input = document.getElementById('editTagInput');
     container.innerHTML = '';
-    currentTags.forEach(function(tag, idx) {
-        var span = document.createElement('span');
-        span.className = 'selected-tag';
-        span.innerHTML = '<span class="text">' + tag + '</span><span class="remove" data-idx="' + idx + '" title="删除">&times;</span>';
-        container.appendChild(span);
-    });
+    if (!currentTags.length) {
+        container.style.display = 'none';
+    } else {
+        container.style.display = 'flex';
+        currentTags.forEach(function(tag, idx) {
+            var span = document.createElement('span');
+            span.className = 'selected-tag';
+            span.innerHTML = '<span class="text">' + tag + '</span><span class="remove" data-idx="' + idx + '" title="删除">&times;</span>';
+            container.appendChild(span);
+        });
+    }
     container.querySelectorAll('.remove').forEach(function(btn) {
         btn.onclick = function(e) {
             e.stopPropagation();
@@ -170,7 +175,7 @@ function renderTagDropdown(filter) {
         dropdown.appendChild(empty);
     }
 
-    dropdown.style.display = 'block';
+    positionDropdown();
 }
 
 function addTag(tag) {
@@ -199,6 +204,32 @@ function setActiveTagItem(index) {
     tagActiveIndex = index;
     if (index >= 0 && items[index]) {
         items[index].scrollIntoView({ block: 'nearest' });
+    }
+}
+
+function positionDropdown() {
+    var dropdown = document.getElementById('tagDropdown');
+    var wrap = document.getElementById('tagInputWrap');
+    if (!dropdown || !wrap) return;
+
+    // 先按默认下方展开测量
+    dropdown.style.top = '100%';
+    dropdown.style.bottom = 'auto';
+    dropdown.style.marginTop = '4px';
+    dropdown.style.marginBottom = '0';
+    dropdown.style.display = 'block';
+
+    var wrapRect = wrap.getBoundingClientRect();
+    var dropdownHeight = Math.min(dropdown.scrollHeight || 220, 220);
+    var spaceBelow = window.innerHeight - wrapRect.bottom - 8;
+    var spaceAbove = wrapRect.top - 8;
+
+    // 如果下方空间不足且上方空间更充足，则向上展开
+    if (spaceBelow < dropdownHeight && spaceAbove > spaceBelow) {
+        dropdown.style.top = 'auto';
+        dropdown.style.bottom = '100%';
+        dropdown.style.marginTop = '0';
+        dropdown.style.marginBottom = '4px';
     }
 }
 
@@ -244,18 +275,9 @@ function closeEditModal() {
 document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('editTagInput');
     var dropdown = document.getElementById('tagDropdown');
-    var inner = document.getElementById('tagSelectorInner');
+    var wrap = document.getElementById('tagInputWrap');
     var overlay = document.getElementById('editModal');
     if (!input) return;
-
-    // 点击选择框内部聚焦输入框
-    if (inner) {
-        inner.addEventListener('click', function(e) {
-            if (e.target === inner || e.target.classList.contains('selected-tags-inline')) {
-                input.focus();
-            }
-        });
-    }
 
     input.addEventListener('input', function() {
         renderTagDropdown(this.value);
@@ -290,13 +312,13 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     input.addEventListener('focus', function() {
-        if (inner) inner.classList.add('focused');
+        if (wrap) wrap.classList.add('focused');
         renderTagDropdown(this.value);
     });
 
     // 失焦时延迟关闭下拉框，避免点击选项时已被隐藏
     input.addEventListener('blur', function() {
-        if (inner) inner.classList.remove('focused');
+        if (wrap) wrap.classList.remove('focused');
         setTimeout(function() { dropdown.style.display = 'none'; }, 150);
     });
 
@@ -308,12 +330,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // 弹窗滚动时关闭下拉框，避免选项悬浮错位
+    // 弹窗滚动或窗口大小变化时重新定位下拉框
     if (overlay) {
         overlay.addEventListener('scroll', function() {
-            dropdown.style.display = 'none';
+            if (dropdown.style.display === 'block') positionDropdown();
         }, true);
     }
+    window.addEventListener('resize', function() {
+        if (dropdown.style.display === 'block') positionDropdown();
+    });
 });
 
 function saveEdit(e) {
