@@ -142,6 +142,7 @@ function renderTagDropdown(filter) {
         var createItem = document.createElement('div');
         createItem.className = 'tag-dropdown-item create';
         createItem.textContent = allTags.indexOf(val) === -1 ? '新建标签：' + val : '选择标签：' + val;
+        createItem.onmousedown = function(e) { e.preventDefault(); };
         createItem.onclick = function() { addTag(val); };
         dropdown.appendChild(createItem);
     }
@@ -150,6 +151,7 @@ function renderTagDropdown(filter) {
         var item = document.createElement('div');
         item.className = 'tag-dropdown-item';
         item.textContent = tag;
+        item.onmousedown = function(e) { e.preventDefault(); };
         item.onclick = function() { addTag(tag); };
         dropdown.appendChild(item);
     });
