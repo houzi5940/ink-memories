@@ -202,14 +202,13 @@ body {
   border: none;
   font-size: 14px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
+  opacity: 1;
+  transition: background 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
 }
-.photo-card:hover .card-edit { opacity: 1; }
 .card-edit:hover { background: var(--ink-accent); }
 
 /* ========================================
@@ -304,14 +303,14 @@ body {
   border: none;
   font-size: 14px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s;
+  opacity: 1;
+  transition: background 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
 }
-.daily-item:hover .card-edit { opacity: 1; }
+.daily-item .card-edit:hover { background: var(--ink-accent); }
 
 /* ========================================
    Gallery Controls
