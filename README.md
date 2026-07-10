@@ -4,11 +4,15 @@
 
 ## ✨ 功能
 
-- **AI 智能评分**：双维度评分（回忆值 + 美观值），自动分类
-- **诗意旁白**：为每张照片生成一句话文案
-- **每日精选**：从「历史上的今天」中选出最值得回忆的照片
-- **WebUI 浏览**：按类型、评分、日期浏览和搜索照片
-- **增量分析**：已分析的照片自动跳过，可随时中断重启
+- **AI 智能评分** — 双维度评分（回忆值 + 美观值），自动分类（人物/旅行/猫咪/美食…）
+- **诗意旁白** — 为每张照片生成一句话文案
+- **每日精选** — 从「历史上的今天」中选出最值得回忆的照片，每日全新描述
+- **WebUI 浏览** — 按类型、评分、日期浏览，支持搜索描述/标签
+- **手动编辑** — 在线修改评分、分类、旁白、描述、标签
+- **标签系统** — React 标签选择器，支持搜索已有标签和新建标签（shadcn/ui + lucide-react）
+- **相似照片去重** — 基于感知哈希自动识别重复照片，降分处理
+- **分析进度条** — 实时显示分析进度和统计（成功/失败数）
+- **增量分析** — 已分析的照片自动跳过，可随时中断重启
 
 ## 🚀 快速开始
 
@@ -53,41 +57,42 @@ sudo docker exec ink-memories python cli.py analyze -j 4 -n 100
 
 ```
 ink-memories/
-├── backend/                  # FastAPI 后端
-│   ├── cli.py                # CLI 入口（analyze / server / daily）
-│   ├── main.py               # FastAPI 应用入口
-│   ├── config.py             # 配置
-│   ├── database.py           # SQLite 数据库操作
-│   ├── analyzer.py           # VLM 照片分析
-│   ├── daily.py              # 每日精选逻辑
-│   ├── dependencies.py       # 依赖注入
-│   ├── templates.py          # Jinja2 模板配置
-│   └── routers/              # API / 页面路由
-│       ├── pages.py
-│       ├── photos.py
-│       └── tags.py
-├── frontend/                 # React + TypeScript + Tailwind 前端
+├── backend/                    # FastAPI 后端
+│   ├── cli.py                  # CLI 入口（analyze / server / daily）
+│   ├── main.py                 # FastAPI 应用入口
+│   ├── config.py               # 配置管理
+│   ├── database.py             # SQLite 数据库操作
+│   ├── analyzer.py             # VLM 照片分析 + 去重
+│   ├── daily.py                # 每日精选逻辑
+│   ├── progress.py             # 分析进度追踪（线程安全）
+│   ├── dependencies.py         # FastAPI 依赖注入
+│   ├── templates.py            # Jinja2 模板配置
+│   └── routers/
+│       ├── pages.py            # 页面路由（首页/相册/统计/搜索）
+│       ├── photos.py           # 照片 API（浏览/编辑/分析）
+│       └── tags.py             # 标签 API
+├── frontend/                   # React + TypeScript + Tailwind
 │   ├── src/
-│   │   ├── main.tsx
-│   │   ├── index.css
+│   │   ├── main.tsx            # React 入口
+│   │   ├── index.css           # Tailwind 基础样式
 │   │   ├── components/
-│   │   │   ├── TagSelector.tsx
-│   │   │   └── TagSelectorRoot.tsx
-│   │   └── components/ui/    # shadcn/ui 组件
-│   ├── templates/            # WebUI 模板（Jinja2）
-│   │   ├── base.html
-│   │   ├── index.html        # 今日精选
-│   │   ├── gallery.html      # 照片库
-│   │   ├── stats.html        # 统计
-│   │   └── search.html       # 搜索
-│   ├── static/               # 静态资源
-│   │   └── style.css
+│   │   │   ├── TagSelector.tsx       # 标签下拉选组件
+│   │   │   └── TagSelectorRoot.tsx   # 标签选择器根组件
+│   │   └── components/ui/      # shadcn/ui 组件
+│   ├── templates/              # WebUI 页面（Jinja2 服务端渲染）
+│   │   ├── base.html           # 布局 + 导航 + 编辑弹窗 + 进度条
+│   │   ├── index.html          # 今日精选
+│   │   ├── gallery.html        # 照片库（排序/筛选/分页）
+│   │   ├── stats.html          # 统计仪表盘
+│   │   └── search.html         # 搜索页面
+│   ├── static/
+│   │   └── style.css           # 应用样式（现代温暖风格）
 │   ├── package.json
 │   └── vite.config.ts
-├── cli.py                    # 项目入口包装器（调用 backend.cli）
-├── Dockerfile
+├── cli.py                      # 项目入口（委托给 backend.cli）
+├── Dockerfile                  # 多阶段构建
 ├── docker-compose.yml
-├── .env.example              # 环境变量模板
+├── .env.example                # 环境变量模板
 ├── requirements.txt
 └── .dockerignore
 ```
@@ -103,8 +108,27 @@ ink-memories/
 | `VLM_MODEL` | 模型名称 | deepseek-chat |
 | `CONCURRENCY` | 并发数 | 2 |
 | `BATCH_LIMIT` | 每次最多分析数 | 0 (不限) |
-| `MEMORY_THRESHOLD` | 精选最低分 | 70 |
-| `DAILY_PHOTO_QUANTITY` | 每日精选数 | 5 |
+| `TIMEOUT` | 单张超时（秒）| 120 |
+| `MEMORY_THRESHOLD` | 精选最低回忆分 | 70 |
+| `DAILY_PHOTO_QUANTITY` | 每日精选数量 | 5 |
+| `SIMILARITY_THRESHOLD` | 去重哈希距离阈值 | 5 |
+| `SIMILARITY_PENALTY_SCORE` | 重复照片降分值 | 10 |
+
+## 📡 API 接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/` | 今日精选页面 |
+| `GET` | `/gallery` | 照片库 |
+| `GET` | `/stats` | 统计页面 |
+| `GET` | `/search` | 搜索页面 |
+| `GET` | `/photo/{path}` | 照片文件服务 |
+| `POST` | `/api/analyze` | 触发分析（后台） |
+| `GET` | `/api/analyze/progress` | 分析进度轮询 |
+| `GET` | `/api/photo/detail` | 照片详情 |
+| `POST` | `/api/photo/update` | 编辑照片 |
+| `GET` | `/api/tags` | 标签列表 |
+| `GET` | `/api/status` | 系统状态 |
 
 ## 🔄 定时任务
 
@@ -118,6 +142,25 @@ ink-memories/
 ## 💰 费用估算
 
 按 DeepSeek API 计价，分析 1 万张照片约 ¥10-20（仅首次全量分析时产生，后续增量分析费用很小）。
+
+## 🧪 本地开发
+
+```bash
+# 1. 创建虚拟环境
+python3 -m venv venv && source venv/bin/activate
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 构建前端
+cd frontend && npm install && npm run build && cd ..
+
+# 4. 生成测试数据
+python seed_local.py
+
+# 5. 启动服务器
+PHOTO_DIR=./test_photos DB_PATH=./data/photos.db python cli.py server
+```
 
 ## 致谢
 
