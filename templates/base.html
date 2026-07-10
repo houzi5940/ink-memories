@@ -118,6 +118,7 @@ document.addEventListener('keydown', function(e) {
 var currentTags = [];
 var allTags = [];
 var tagActiveIndex = -1;
+var tagDropdownJustOpened = false;
 
 function renderSelectedTags() {
     var container = document.getElementById('selectedTags');
@@ -194,6 +195,8 @@ function renderTagDropdown(filter, show) {
     if (shouldShow) {
         input.setAttribute('aria-expanded', 'true');
         positionDropdown();
+        tagDropdownJustOpened = true;
+        setTimeout(function() { tagDropdownJustOpened = false; }, 200);
     } else {
         dropdown.style.display = 'none';
         input.setAttribute('aria-expanded', 'false');
@@ -206,16 +209,45 @@ function addTag(tag) {
     currentTags.push(tag);
     document.getElementById('editTagInput').value = '';
     renderSelectedTags();
-    renderTagDropdown('');
-    document.getElementById('editTagInput').focus();
+    // 若下拉框已展开且当前无筛选，直接更新对应项状态，避免整框重绘闪烁
+    var input = document.getElementById('editTagInput');
+    if (input.getAttribute('aria-expanded') === 'true' && !input.value.trim()) {
+        updateDropdownItemState(tag, true);
+    } else {
+        renderTagDropdown('');
+    }
+    // 防止点击选项后可能触发的失焦把下拉框关掉
+    tagDropdownJustOpened = true;
+    setTimeout(function() { tagDropdownJustOpened = false; }, 200);
+    input.focus();
 }
 
 function removeTag(tag) {
     var idx = currentTags.indexOf(tag);
     if (idx !== -1) currentTags.splice(idx, 1);
     renderSelectedTags();
-    renderTagDropdown(document.getElementById('editTagInput').value);
-    document.getElementById('editTagInput').focus();
+    var input = document.getElementById('editTagInput');
+    if (input.getAttribute('aria-expanded') === 'true' && !input.value.trim()) {
+        updateDropdownItemState(tag, false);
+    } else {
+        renderTagDropdown(input.value);
+    }
+    tagDropdownJustOpened = true;
+    setTimeout(function() { tagDropdownJustOpened = false; }, 200);
+    input.focus();
+}
+
+function updateDropdownItemState(tag, isSelected) {
+    var items = document.querySelectorAll('#tagDropdown .tag-dropdown-item');
+    items.forEach(function(item) {
+        var label = item.querySelector('.label');
+        if (label && label.textContent === tag) {
+            item.classList.toggle('selected', isSelected);
+            item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+            var check = item.querySelector('.check');
+            if (check) check.textContent = isSelected ? '✓' : '';
+        }
+    });
 }
 
 function setActiveTagItem(index) {
@@ -344,6 +376,8 @@ document.addEventListener('DOMContentLoaded', function() {
     input.addEventListener('blur', function() {
         if (wrap) wrap.classList.remove('focused');
         setTimeout(function() {
+            // 若刚打开/刷新过下拉框（如选择标签后），忽略本次失焦
+            if (tagDropdownJustOpened) return;
             dropdown.style.display = 'none';
             input.setAttribute('aria-expanded', 'false');
         }, 150);
