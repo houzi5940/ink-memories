@@ -145,12 +145,13 @@ function renderSelectedTags() {
     });
 }
 
-function renderTagDropdown(filter) {
+function renderTagDropdown(filter, show) {
     var dropdown = document.getElementById('tagDropdown');
     var input = document.getElementById('editTagInput');
     dropdown.innerHTML = '';
     tagActiveIndex = -1;
     var val = (filter || '').trim();
+    var shouldShow = show !== false;
 
     // 未命中时提供「新建标签」选项
     if (val && currentTags.indexOf(val) === -1) {
@@ -190,8 +191,13 @@ function renderTagDropdown(filter) {
         dropdown.appendChild(empty);
     }
 
-    input.setAttribute('aria-expanded', 'true');
-    positionDropdown();
+    if (shouldShow) {
+        input.setAttribute('aria-expanded', 'true');
+        positionDropdown();
+    } else {
+        dropdown.style.display = 'none';
+        input.setAttribute('aria-expanded', 'false');
+    }
 }
 
 function addTag(tag) {
@@ -256,7 +262,8 @@ function openEditModal(path) {
     allTags = [];
     document.getElementById('editTagInput').value = '';
     renderSelectedTags();
-    renderTagDropdown('');
+    // 弹窗打开时不自动展开标签下拉框，仅预渲染选项
+    renderTagDropdown('', false);
     var img = document.getElementById('editPreview');
     var cleanPath = path.replace(/^\//, '');
     img.innerHTML = '<img src="/photo/' + encodeURI(cleanPath) + '" style="max-width:100%;max-height:200px;border-radius:10px;object-fit:cover">';
@@ -267,7 +274,8 @@ function openEditModal(path) {
     ]).then(function(results) {
         var d = results[0];
         allTags = results[1] || [];
-        renderTagDropdown('');
+        // 数据加载后仍保持下拉框收起，等待用户点击输入框
+        renderTagDropdown('', false);
         if (d.error) { alert(d.error); return; }
         document.getElementById('editMemory').value = d.memory_score || 50;
         document.getElementById('editMemoryVal').textContent = d.memory_score || 50;
@@ -279,7 +287,7 @@ function openEditModal(path) {
         document.getElementById('editReason').value = d.reason || '';
         try { currentTags = (JSON.parse(d.tags || '[]') || []); } catch(e) { currentTags = []; }
         renderSelectedTags();
-        renderTagDropdown('');
+        renderTagDropdown('', false);
     });
     document.getElementById('editModal').style.display = 'block';
 }
