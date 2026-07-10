@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """InkMemories — CLI 入口"""
 
+from __future__ import annotations
+
 import argparse
 import logging
 import sys

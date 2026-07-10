@@ -52,7 +52,7 @@
   <div class="icon">📸</div>
   <h2>暂无精选</h2>
   <p>还没有足够的照片数据，请先运行照片分析。</p>
-  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>alert(d.message))" class="btn btn-primary">开始分析</button>
+  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>{if(!d.error)window.dispatchEvent(new Event('analyze:start'));alert(d.message)}).catch(()=>alert('请求失败'))" data-action="analyze" class="btn btn-primary">开始分析</button>
 </div>
 {% endif %}
 {% endblock %}

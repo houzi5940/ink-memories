@@ -1,5 +1,7 @@
 """照片分析器 — 调用 VLM API 进行照片分析与评分"""
 
+from __future__ import annotations
+
 import base64
 import io
 import json
@@ -13,6 +15,7 @@ import requests
 from PIL import Image, ExifTags
 
 from backend import config, database
+from backend import progress as pr
 
 logger = logging.getLogger(__name__)
 
@@ -448,9 +451,14 @@ def run_analysis():
     """运行照片分析（主入口）"""
     database.init_db()
 
+    # 初始化进度
+    pr.start_analysis()
+    pr.report_scanning()
+
     photos = scan_photos()
     if not photos:
         logger.info("没有新照片需要分析")
+        pr.report_done()
         return
 
     # 限制批次大小
@@ -458,6 +466,10 @@ def run_analysis():
         photos = photos[:config.BATCH_LIMIT]
 
     logger.info(f"开始分析 {len(photos)} 张照片，并发数: {config.CONCURRENCY}")
+
+    # 更新进度：现在知道总数了
+    pr.start_analysis(total=len(photos))
+    pr.report_analyzing()
 
     success_count = 0
     fail_count = 0
@@ -475,10 +487,14 @@ def run_analysis():
                     logger.info(f"✓ [{success_count}/{len(photos)}] {os.path.basename(filepath)} "
                                f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
                                f"[{record['type']}]")
+                    pr.report_tick(filepath, success=True)
                 else:
                     fail_count += 1
+                    pr.report_tick(filepath, success=False)
             except Exception as e:
                 fail_count += 1
                 logger.error(f"✗ {filepath}: {e}")
+                pr.report_tick(filepath, success=False)
 
     logger.info(f"分析完成: 成功 {success_count}, 失败 {fail_count}")
+    pr.report_done()

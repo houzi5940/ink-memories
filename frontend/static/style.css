@@ -852,3 +852,60 @@ body {
    Fluid / Intrinsic layout（clamp / minmax / flex-wrap / min）
    随视口与容器连续缩放，不使用固定断点媒体查询。
    ======================================== */
+
+/* ========================================
+   分析进度条
+   ======================================== */
+
+.progress-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 200;
+  background: rgba(255,255,255,0.95);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--ink-border);
+  padding: 14px clamp(14px, 4vw, 24px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  animation: progress-slide-up 0.3s cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes progress-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.progress-track {
+  flex: 1;
+  height: 6px;
+  background: #f0eee9;
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ink-accent), #f59e0b);
+  border-radius: 3px;
+  transition: width 0.4s cubic-bezier(0.16,1,0.3,1);
+}
+
+.progress-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--ink-text-secondary);
+  white-space: nowrap;
+}
+
+#progressPercent {
+  font-weight: 600;
+  color: var(--ink-accent);
+  min-width: 36px;
+  text-align: right;
+}

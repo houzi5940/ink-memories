@@ -1,5 +1,7 @@
 """SQLite 数据库操作"""
 
+from __future__ import annotations
+
 import sqlite3
 import json
 from contextlib import contextmanager

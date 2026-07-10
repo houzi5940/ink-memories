@@ -27,6 +27,17 @@
     {% block content %}{% endblock %}
 </main>
 
+<!-- 分析进度条 -->
+<div id="progressBar" class="progress-bar" style="display:none">
+    <div class="progress-track">
+        <div id="progressFill" class="progress-fill" style="width:0%"></div>
+    </div>
+    <div class="progress-info">
+        <span id="progressText">准备中...</span>
+        <span id="progressPercent">0%</span>
+    </div>
+</div>
+
 <!-- Lightbox -->
 <div id="lightbox" class="lightbox" onclick="closeLightbox()">
     <span class="lightbox-close">&times;</span>
@@ -89,6 +100,79 @@
 </div>
 
 <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+<script>
+/* ── 分析进度轮询 ── */
+(function() {
+    var bar = document.getElementById('progressBar');
+    var fill = document.getElementById('progressFill');
+    var text = document.getElementById('progressText');
+    var pct  = document.getElementById('progressPercent');
+    var timer = null;
+
+    function poll() {
+        fetch('/api/analyze/progress')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.running) {
+                    var p = d.total > 0 ? Math.min(100, Math.round(d.done / d.total * 100)) : 0;
+                    fill.style.width = p + '%';
+                    pct.textContent = p + '%';
+                    if (d.phase === 'scanning') {
+                        text.textContent = '正在扫描照片目录...';
+                    } else if (d.total > 0) {
+                        text.textContent = '分析中 ' + d.done + '/' + d.total + ' · 成功 ' + d.success + ' · 失败 ' + d.fail;
+                    }
+                    bar.style.display = 'block';
+                    timer = setTimeout(poll, 1500);
+                } else if (bar.style.display !== 'none') {
+                    // 刚刚完成
+                    if (d.total > 0) {
+                        fill.style.width = '100%';
+                        pct.textContent = '100%';
+                        text.textContent = '分析完成 ✓  成功 ' + d.success + ' · 失败 ' + d.fail;
+                    }
+                    // 2 秒后隐藏
+                    setTimeout(function() {
+                        bar.style.display = 'none';
+                        fill.style.width = '0%';
+                    }, 2000);
+                }
+            })
+            .catch(function() {
+                // 网络错误静默忽略
+                timer = setTimeout(poll, 3000);
+            });
+    }
+
+    // 检测到分析请求时开始轮询
+    document.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-action="analyze"]');
+        if (btn) {
+            // 重置进度条显示
+            bar.style.display = 'block';
+            fill.style.width = '0%';
+            text.textContent = '启动中...';
+            pct.textContent = '0%';
+            // 开始轮询
+            if (timer) clearTimeout(timer);
+            setTimeout(poll, 500);
+        }
+    });
+
+    // 也响应通过代码触发的 analyze:start 事件
+    window.addEventListener('analyze:start', function() {
+        bar.style.display = 'block';
+        fill.style.width = '0%';
+        text.textContent = '启动中...';
+        pct.textContent = '0%';
+        if (timer) clearTimeout(timer);
+        setTimeout(poll, 500);
+    });
+
+    // 页面加载时检查是否有正在运行的任务
+    poll();
+})();
+</script>
 <script>
 function openLightbox(src) {
     document.getElementById('lightbox-img').src = src;

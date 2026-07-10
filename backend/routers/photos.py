@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from backend import config, database
 from backend.analyzer import run_analysis
+from backend import progress as pr
 from backend.dependencies import get_db
 
 
@@ -74,11 +75,18 @@ def api_analyze():
         try:
             run_analysis()
         except Exception as e:
+            pr.report_done()
             logger.error(f"分析任务失败: {e}")
 
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return {"status": "started", "message": "分析任务已启动"}
+
+
+@router.get("/api/analyze/progress")
+def api_analyze_progress():
+    """获取分析进度"""
+    return pr.get_progress()
 
 
 @router.get("/api/photo/detail")
