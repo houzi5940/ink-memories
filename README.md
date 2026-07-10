@@ -53,22 +53,43 @@ sudo docker exec ink-memories python cli.py analyze -j 4 -n 100
 
 ```
 ink-memories/
-├── cli.py              # CLI 入口
-├── config.py           # 配置
-├── database.py         # SQLite 数据库操作
-├── analyzer.py         # VLM 照片分析
-├── daily.py            # 每日精选逻辑
-├── server.py           # Flask WebUI
+├── backend/                  # FastAPI 后端
+│   ├── cli.py                # CLI 入口（analyze / server / daily）
+│   ├── main.py               # FastAPI 应用入口
+│   ├── config.py             # 配置
+│   ├── database.py           # SQLite 数据库操作
+│   ├── analyzer.py           # VLM 照片分析
+│   ├── daily.py              # 每日精选逻辑
+│   ├── dependencies.py       # 依赖注入
+│   ├── templates.py          # Jinja2 模板配置
+│   └── routers/              # API / 页面路由
+│       ├── pages.py
+│       ├── photos.py
+│       └── tags.py
+├── frontend/                 # React + TypeScript + Tailwind 前端
+│   ├── src/
+│   │   ├── main.tsx
+│   │   ├── index.css
+│   │   ├── components/
+│   │   │   ├── TagSelector.tsx
+│   │   │   └── TagSelectorRoot.tsx
+│   │   └── components/ui/    # shadcn/ui 组件
+│   ├── templates/            # WebUI 模板（Jinja2）
+│   │   ├── base.html
+│   │   ├── index.html        # 今日精选
+│   │   ├── gallery.html      # 照片库
+│   │   ├── stats.html        # 统计
+│   │   └── search.html       # 搜索
+│   ├── static/               # 静态资源
+│   │   └── style.css
+│   ├── package.json
+│   └── vite.config.ts
+├── cli.py                    # 项目入口包装器（调用 backend.cli）
 ├── Dockerfile
 ├── docker-compose.yml
-├── .env.example        # 环境变量模板
+├── .env.example              # 环境变量模板
 ├── requirements.txt
-└── templates/          # WebUI 模板
-    ├── base.html
-    ├── index.html      # 今日精选
-    ├── gallery.html    # 照片库
-    ├── stats.html      # 统计
-    └── search.html     # 搜索
+└── .dockerignore
 ```
 
 ## ⚙️ 配置说明

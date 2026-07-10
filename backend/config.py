@@ -49,5 +49,8 @@ SIMILARITY_PENALTY_SCORE = float(os.environ.get("SIMILARITY_PENALTY_SCORE", "10.
 # ============================================================
 # WebUI
 # ============================================================
+# 保留旧命名以兼容现有脚本/Docker，同时提供 FastAPI 侧常用别名
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = int(os.environ.get("WEB_PORT", "8765"))
+WEB_HOST = FLASK_HOST
+WEB_PORT = FLASK_PORT

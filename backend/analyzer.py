@@ -12,8 +12,7 @@ from pathlib import Path
 import requests
 from PIL import Image, ExifTags
 
-import config
-import database
+from backend import config, database
 
 logger = logging.getLogger(__name__)
 

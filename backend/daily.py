@@ -8,8 +8,7 @@ from datetime import datetime, timedelta
 
 import requests
 
-import config
-import database
+from backend import config, database
 
 logger = logging.getLogger(__name__)
 

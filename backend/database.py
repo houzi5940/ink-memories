@@ -4,7 +4,7 @@ import sqlite3
 import json
 from contextlib import contextmanager
 
-import config
+from backend import config
 
 
 def init_db():
