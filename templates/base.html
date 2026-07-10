@@ -74,8 +74,14 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>标签（用逗号分隔）</label>
-                    <input type="text" id="editTags" placeholder="例如：旅行, 海边, 2023">
+                    <label>标签</label>
+                    <div class="tag-selector" id="tagSelector">
+                        <div class="selected-tags" id="selectedTags"></div>
+                        <div class="tag-input-wrap">
+                            <input type="text" id="editTagInput" placeholder="输入新标签或选择已有标签..." autocomplete="off">
+                            <div class="tag-dropdown" id="tagDropdown"></div>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">保存</button>
@@ -99,16 +105,79 @@ document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') { closeLightbox(); closeEditModal(); }
 });
 
+var currentTags = [];
+var allTags = [];
+
+function renderSelectedTags() {
+    var container = document.getElementById('selectedTags');
+    container.innerHTML = '';
+    currentTags.forEach(function(tag, idx) {
+        var span = document.createElement('span');
+        span.className = 'selected-tag';
+        span.innerHTML = tag + '<span class="remove" data-idx="' + idx + '">&times;</span>';
+        container.appendChild(span);
+    });
+    container.querySelectorAll('.remove').forEach(function(btn) {
+        btn.onclick = function() {
+            currentTags.splice(parseInt(this.dataset.idx), 1);
+            renderSelectedTags();
+            renderTagDropdown(document.getElementById('editTagInput').value);
+        };
+    });
+}
+
+function renderTagDropdown(filter) {
+    var dropdown = document.getElementById('tagDropdown');
+    dropdown.innerHTML = '';
+    var val = (filter || '').trim();
+    var matched = allTags.filter(function(t) {
+        return currentTags.indexOf(t) === -1 && (!val || t.indexOf(val) !== -1);
+    });
+    if (val && currentTags.indexOf(val) === -1 && allTags.indexOf(val) === -1) {
+        var createItem = document.createElement('div');
+        createItem.className = 'tag-dropdown-item create';
+        createItem.textContent = '新增标签：' + val;
+        createItem.onclick = function() { addTag(val); };
+        dropdown.appendChild(createItem);
+    }
+    matched.forEach(function(tag) {
+        var item = document.createElement('div');
+        item.className = 'tag-dropdown-item';
+        item.textContent = tag;
+        item.onclick = function() { addTag(tag); };
+        dropdown.appendChild(item);
+    });
+    dropdown.style.display = (matched.length || (val && currentTags.indexOf(val) === -1)) ? 'block' : 'none';
+}
+
+function addTag(tag) {
+    tag = tag.trim();
+    if (!tag || currentTags.indexOf(tag) !== -1) return;
+    currentTags.push(tag);
+    document.getElementById('editTagInput').value = '';
+    renderSelectedTags();
+    renderTagDropdown('');
+}
+
 function openEditModal(path) {
     document.getElementById('editPath').value = path;
     document.getElementById('editResult').textContent = '';
+    currentTags = [];
+    allTags = [];
+    document.getElementById('editTagInput').value = '';
+    renderSelectedTags();
+    renderTagDropdown('');
     var img = document.getElementById('editPreview');
     var cleanPath = path.replace(/^\//, '');
     img.innerHTML = '<img src="/photo/' + encodeURI(cleanPath) + '" style="max-width:100%;max-height:200px;border-radius:10px;object-fit:cover">';
 
-    fetch('/api/photo/detail?path=' + encodeURIComponent(path))
-        .then(r => r.json())
-        .then(d => {
+    Promise.all([
+        fetch('/api/photo/detail?path=' + encodeURIComponent(path)).then(r => r.json()),
+        fetch('/api/tags').then(r => r.json())
+    ]).then(function(results) {
+        var d = results[0];
+        allTags = results[1] || [];
+        renderTagDropdown('');
             if (d.error) { alert(d.error); return; }
             document.getElementById('editMemory').value = d.memory_score || 50;
             document.getElementById('editMemoryVal').textContent = d.memory_score || 50;
@@ -118,18 +187,47 @@ function openEditModal(path) {
             document.getElementById('editSide').value = d.side_caption || '';
             document.getElementById('editCaption').value = d.caption || '';
             document.getElementById('editReason').value = d.reason || '';
-            var tags = '';
-            try { tags = (JSON.parse(d.tags || '[]') || []).join(', '); } catch(e) {}
-            document.getElementById('editTags').value = tags;
+            try { currentTags = (JSON.parse(d.tags || '[]') || []); } catch(e) { currentTags = []; }
+            renderSelectedTags();
+            renderTagDropdown('');
         });
     document.getElementById('editModal').style.display = 'block';
 }
 function closeEditModal() {
     document.getElementById('editModal').style.display = 'none';
 }
+
+// 标签输入事件绑定
+document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('editTagInput');
+    var dropdown = document.getElementById('tagDropdown');
+    if (!input) return;
+
+    input.addEventListener('input', function() {
+        renderTagDropdown(this.value);
+    });
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addTag(this.value);
+        } else if (e.key === 'Escape') {
+            dropdown.style.display = 'none';
+        }
+    });
+    input.addEventListener('focus', function() {
+        renderTagDropdown(this.value);
+    });
+    // 点击下拉框外部时关闭
+    document.addEventListener('click', function(e) {
+        var selector = document.getElementById('tagSelector');
+        if (selector && !selector.contains(e.target)) {
+            dropdown.style.display = 'none';
+        }
+    });
+});
+
 function saveEdit(e) {
     e.preventDefault();
-    var tags = document.getElementById('editTags').value;
     var data = {
         path: document.getElementById('editPath').value,
         memory_score: parseFloat(document.getElementById('editMemory').value),
@@ -138,7 +236,7 @@ function saveEdit(e) {
         side_caption: document.getElementById('editSide').value,
         caption: document.getElementById('editCaption').value,
         reason: document.getElementById('editReason').value,
-        tags: tags,
+        tags: currentTags,
     };
     fetch('/api/photo/update', {
         method: 'POST',

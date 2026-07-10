@@ -157,6 +157,12 @@ def api_status():
     })
 
 
+@app.route("/api/tags")
+def api_tags():
+    """获取所有已存在的手动标签（用于编辑下拉选择）"""
+    return jsonify([t["tag"] for t in database.get_tag_distribution()])
+
+
 @app.route("/api/photo/update", methods=["POST"])
 def api_photo_update():
     """手动更新照片的评分、标签、旁白"""
