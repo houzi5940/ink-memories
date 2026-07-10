@@ -642,7 +642,7 @@ body {
 .empty-hint { color: var(--text-muted); font-size: 0.9rem; }
 
 /* 标签选择器（Ant Design 多选 Select 风格） */
-/* 标签选择器（上下排版：已选标签在上，输入框在下） */
+/* 标签选择器（上下排版，design-taste-frontend 审计后优化） */
 .tag-selector {
   position: relative;
   width: 100%;
@@ -665,6 +665,11 @@ body {
   font-size: 0.85rem;
   line-height: 1.5;
   font-weight: 500;
+  animation: tagIn 0.18s ease-out;
+}
+@keyframes tagIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
 }
 .selected-tag .text { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selected-tag .remove {
@@ -674,12 +679,13 @@ body {
   padding: 0 2px;
   border-radius: 50%;
   opacity: 0.75;
-  transition: opacity 0.15s, background 0.15s;
+  transition: opacity 0.15s, background 0.15s, transform 0.1s;
 }
 .selected-tag .remove:hover {
   opacity: 1;
   background: rgba(232, 93, 58, 0.12);
 }
+.selected-tag .remove:active { transform: scale(0.9); }
 .tag-input-wrap {
   position: relative;
 }
@@ -687,7 +693,7 @@ body {
   width: 100%;
   box-sizing: border-box;
   min-height: 40px;
-  padding: 8px 12px;
+  padding: 8px 32px 8px 12px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -705,6 +711,20 @@ body {
   box-shadow: 0 0 0 2px var(--accent-light);
 }
 .tag-selector-input::placeholder { color: var(--text-muted); }
+.tag-selector-arrow {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  pointer-events: none;
+  transition: transform 0.2s, color 0.2s;
+}
+.tag-input-wrap.focused .tag-selector-arrow {
+  transform: translateY(-50%) rotate(180deg);
+  color: var(--accent);
+}
 
 .tag-dropdown {
   display: none;
@@ -719,6 +739,11 @@ body {
   box-shadow: var(--shadow-lg);
   z-index: 100;
   overscroll-behavior: contain;
+  animation: dropdownIn 0.15s ease-out;
+}
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .tag-dropdown-item {
   display: flex;
@@ -728,7 +753,7 @@ body {
   font-size: 0.85rem;
   color: var(--text);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .tag-dropdown-item:last-child { border-bottom: none; }
 .tag-dropdown-item:hover,
