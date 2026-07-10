@@ -54,11 +54,13 @@ def main():
         print(f"   数据库共 {summary['total_in_db']} 张照片\n")
         if summary["photos"]:
             for i, p in enumerate(summary["photos"], 1):
-                sc = p.get("side_caption") or ""
+                dc = p.get("daily_caption") or ""
+                dsc = p.get("daily_side_caption") or ""
                 print(f"  {i}. [{p['type']}] 回忆:{p['memory_score']:.0f} 美观:{p['beauty_score']:.0f}")
-                print(f"     {p['caption'][:80]}")
-                if sc:
-                    print(f"     「{sc}」")
+                if dc:
+                    print(f"     {dc[:80]}")
+                if dsc:
+                    print(f"     「{dsc}」")
                 print()
         else:
             print("  暂无精选，请先运行 analyze 命令。")

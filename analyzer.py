@@ -1,11 +1,10 @@
-"""照片分析器 — 调用 VLM API 进行评分和文案生成"""
+"""照片分析器 — 调用 VLM API 进行照片分析与评分"""
 
 import base64
 import io
 import json
 import logging
 import os
-import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -25,12 +24,11 @@ logger = logging.getLogger(__name__)
 SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任务是分析用户的照片，返回严格的 JSON。
 
 你需要完成：
-1. caption：80-200字的中文照片描述，描述照片中的场景、人物、动作、环境
-2. type：照片分类，从以下选项中选一个或两个（用/分隔）：
+1. type：照片分类，从以下选项中选一个或两个（用/分隔）：
    人物/孩子/猫咪/家庭/旅行/风景/美食/宠物/日常/文档/杂物/其他
-3. memory_score：0-100的回忆价值评分
-4. beauty_score：0-100的美观度评分
-5. reason：简短的评分理由（20字以内）
+2. memory_score：0-100的回忆价值评分
+3. beauty_score：0-100的美观度评分
+4. reason：简短的评分理由（20字以内）
 
 ## memory_score 评分标准：
 
@@ -68,24 +66,7 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 - 80-100：摄影级作品
 
 输出格式（严格 JSON，不要包含 markdown 代码块标记）：
-{"caption":"...","type":"...","memory_score":75,"beauty_score":60,"reason":"..."}"""
-
-SIDE_CAPTION_SYSTEM_PROMPT = """你是一个为照片写旁白的文案高手。规则：
-
-1. 为照片写一句中文旁白，8-24字，最多30字
-2. 风格：日常的微妙情感，可以是淡淡的幽默、安静的观察、或不经意的感动
-3. 禁止使用以下词汇：世界、梦、时光、岁月、温柔、治愈、美好、回忆、珍惜、感动
-4. 禁止使用"这张照片"、"这一刻"、"这个瞬间"等表述
-5. 不要用比喻句式（像...一样）
-6. 要具体、有画面感，不要抽象抒情
-
-好的例子：
-- "地铁上睡着了，口水流到了包上"
-- "这盘菜她做了三次才成功"
-- "猫占据了键盘，工作只能等等了"
-- "排队两小时，拍照五分钟"
-
-输出：只返回旁白文字，不要引号，不要其他内容。"""
+{"type":"...","memory_score":75,"beauty_score":60,"reason":"..."}"""
 
 
 def encode_image(image_path: str) -> tuple[str, int, int]:
@@ -274,7 +255,7 @@ def call_vlm(image_b64: str) -> dict:
             result = json.loads(content)
 
             # 校验必要字段
-            required = ("caption", "type", "memory_score", "beauty_score", "reason")
+            required = ("type", "memory_score", "beauty_score", "reason")
             if not all(k in result for k in required):
                 raise ValueError(f"缺少字段: {set(required) - set(result.keys())}")
 
@@ -296,35 +277,7 @@ def call_vlm(image_b64: str) -> dict:
     return {"error": last_error}
 
 
-def generate_side_caption(caption: str, photo_type: str) -> str:
-    """生成诗意旁白"""
-    try:
-        channel = config.API_CHANNELS[0]
-        resp = requests.post(
-            channel["api_url"],
-            headers={
-                "Authorization": f"Bearer {channel['api_key']}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": channel["model_name"],
-                "messages": [
-                    {"role": "system", "content": SIDE_CAPTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"照片描述：{caption}\n照片类型：{photo_type}"},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 64,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"].strip()
-        # 清理引号
-        text = text.strip('"').strip("'").strip("「」").strip("""""")
-        return text[:30] if text else None
-    except Exception as e:
-        logger.warning(f"旁白生成失败: {e}")
-        return None
+
 
 
 def scan_photos() -> list[str]:
@@ -385,18 +338,13 @@ def analyze_one_photo(filepath: str) -> dict | None:
         logger.error(f"VLM 评分失败 {filepath}: {vlm_result['error']}")
         return None
 
-    # 生成旁白
-    side_caption = generate_side_caption(vlm_result["caption"], vlm_result["type"])
-
-    # 组装记录
+    # 组装记录（旁白与专属描述统一在 daily 中生成）
     record = {
         "path": filepath,
-        "caption": vlm_result["caption"],
         "type": vlm_result["type"],
         "memory_score": vlm_result["memory_score"],
         "beauty_score": vlm_result["beauty_score"],
         "reason": vlm_result["reason"],
-        "side_caption": side_caption,
         "width": width,
         "height": height,
         "orientation": orientation,
@@ -437,7 +385,7 @@ def run_analysis():
                     success_count += 1
                     logger.info(f"✓ [{success_count}/{len(photos)}] {os.path.basename(filepath)} "
                                f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
-                               f"[{record['type']}] {record['side_caption'] or ''}")
+                               f"[{record['type']}]")
                 else:
                     fail_count += 1
             except Exception as e:

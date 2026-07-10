@@ -39,12 +39,17 @@ DAILY_SIDE_CAPTION_PROMPT = """为这张照片写一句8-20字的旁白，像随
 
 
 def _generate_daily_captions_for_photo(photo: dict) -> tuple[str, str]:
-    """为单张照片生成本日专属的描述和旁白"""
+    """为单张照片生成本日专属的描述和旁白（基于 analyzer 的评分与类型）"""
     if not config.API_CHANNELS:
-        return photo.get("caption", ""), photo.get("side_caption", "")
+        return "", ""
 
     channel = config.API_CHANNELS[0]
-    base_info = f"照片类型：{photo.get('type','未知')}  原始描述：{photo.get('caption','')[:100]}"
+    base_info = (
+        f"照片类型：{photo.get('type','未知')}  "
+        f"回忆评分：{photo.get('memory_score', 0):.0f}  "
+        f"美观评分：{photo.get('beauty_score', 0):.0f}  "
+        f"评分理由：{photo.get('reason','')[:80]}"
+    )
 
     caption = None
     try:
@@ -94,7 +99,7 @@ def _generate_daily_captions_for_photo(photo: dict) -> tuple[str, str]:
     except Exception as e:
         logger.warning(f"每日旁白生成失败: {e}")
 
-    return caption or photo.get("caption", ""), side or photo.get("side_caption", "")
+    return caption or "", side or ""
 
 
 def choose_photos_for_today(today: datetime = None, count: int = None) -> list[dict]:
