@@ -442,7 +442,8 @@ body {
   margin: 0 auto;
   border-radius: 16px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.15);
-  overflow: hidden;
+  /* 允许标签下拉框等绝对定位元素超出 modal 边界 */
+  overflow: visible;
 }
 .modal-header {
   padding: 20px 24px 0;
@@ -691,21 +692,25 @@ body {
   top: 100%;
   left: 0;
   right: 0;
-  margin-top: 4px;
-  max-height: 160px;
+  margin-top: 6px;
+  max-height: 200px;
   overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
-  z-index: 10;
+  z-index: 100;
+  overscroll-behavior: contain;
 }
 .tag-dropdown-item {
-  padding: 8px 12px;
+  padding: 10px 12px;
   font-size: 0.85rem;
   color: var(--text);
   cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
 }
+.tag-dropdown-item:last-child { border-bottom: none; }
 .tag-dropdown-item:hover,
 .tag-dropdown-item.active {
   background: var(--surface-hover);
@@ -713,6 +718,12 @@ body {
 .tag-dropdown-item.create {
   color: var(--accent);
   font-weight: 500;
+}
+.tag-dropdown-empty {
+  padding: 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
 }
 
 /* ========================================

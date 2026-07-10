@@ -107,6 +107,7 @@ document.addEventListener('keydown', function(e) {
 
 var currentTags = [];
 var allTags = [];
+var tagActiveIndex = -1;
 
 function renderSelectedTags() {
     var container = document.getElementById('selectedTags');
@@ -114,7 +115,7 @@ function renderSelectedTags() {
     currentTags.forEach(function(tag, idx) {
         var span = document.createElement('span');
         span.className = 'selected-tag';
-        span.innerHTML = tag + '<span class="remove" data-idx="' + idx + '">&times;</span>';
+        span.innerHTML = tag + '<span class="remove" data-idx="' + idx + '" title="删除">&times;</span>';
         container.appendChild(span);
     });
     container.querySelectorAll('.remove').forEach(function(btn) {
@@ -122,6 +123,7 @@ function renderSelectedTags() {
             currentTags.splice(parseInt(this.dataset.idx), 1);
             renderSelectedTags();
             renderTagDropdown(document.getElementById('editTagInput').value);
+            document.getElementById('editTagInput').focus();
         };
     });
 }
@@ -129,17 +131,21 @@ function renderSelectedTags() {
 function renderTagDropdown(filter) {
     var dropdown = document.getElementById('tagDropdown');
     dropdown.innerHTML = '';
+    tagActiveIndex = -1;
     var val = (filter || '').trim();
     var matched = allTags.filter(function(t) {
         return currentTags.indexOf(t) === -1 && (!val || t.indexOf(val) !== -1);
     });
-    if (val && currentTags.indexOf(val) === -1 && allTags.indexOf(val) === -1) {
+
+    // 未命中时提供「新增标签」选项
+    if (val && currentTags.indexOf(val) === -1) {
         var createItem = document.createElement('div');
         createItem.className = 'tag-dropdown-item create';
-        createItem.textContent = '新增标签：' + val;
+        createItem.textContent = allTags.indexOf(val) === -1 ? '新建标签：' + val : '选择标签：' + val;
         createItem.onclick = function() { addTag(val); };
         dropdown.appendChild(createItem);
     }
+
     matched.forEach(function(tag) {
         var item = document.createElement('div');
         item.className = 'tag-dropdown-item';
@@ -147,7 +153,15 @@ function renderTagDropdown(filter) {
         item.onclick = function() { addTag(tag); };
         dropdown.appendChild(item);
     });
-    dropdown.style.display = (matched.length || (val && currentTags.indexOf(val) === -1)) ? 'block' : 'none';
+
+    if (!dropdown.children.length) {
+        var empty = document.createElement('div');
+        empty.className = 'tag-dropdown-empty';
+        empty.textContent = '输入文字创建新标签';
+        dropdown.appendChild(empty);
+    }
+
+    dropdown.style.display = 'block';
 }
 
 function addTag(tag) {
@@ -157,6 +171,18 @@ function addTag(tag) {
     document.getElementById('editTagInput').value = '';
     renderSelectedTags();
     renderTagDropdown('');
+    document.getElementById('editTagInput').focus();
+}
+
+function setActiveTagItem(index) {
+    var items = document.querySelectorAll('#tagDropdown .tag-dropdown-item');
+    items.forEach(function(item, i) {
+        item.classList.toggle('active', i === index);
+    });
+    tagActiveIndex = index;
+    if (index >= 0 && items[index]) {
+        items[index].scrollIntoView({ block: 'nearest' });
+    }
 }
 
 function openEditModal(path) {
@@ -178,19 +204,21 @@ function openEditModal(path) {
         var d = results[0];
         allTags = results[1] || [];
         renderTagDropdown('');
-            if (d.error) { alert(d.error); return; }
-            document.getElementById('editMemory').value = d.memory_score || 50;
-            document.getElementById('editMemoryVal').textContent = d.memory_score || 50;
-            document.getElementById('editBeauty').value = d.beauty_score || 50;
-            document.getElementById('editBeautyVal').textContent = d.beauty_score || 50;
-            document.getElementById('editType').value = d.type || '日常';
-            document.getElementById('editSide').value = d.side_caption || '';
-            document.getElementById('editCaption').value = d.caption || '';
-            document.getElementById('editReason').value = d.reason || '';
-            try { currentTags = (JSON.parse(d.tags || '[]') || []); } catch(e) { currentTags = []; }
-            renderSelectedTags();
-            renderTagDropdown('');
-        });
+        if (d.error) { alert(d.error); return; }
+        document.getElementById('editMemory').value = d.memory_score || 50;
+        document.getElementById('editMemoryVal').textContent = d.memory_score || 50;
+        document.getElementById('editBeauty').value = d.beauty_score || 50;
+        document.getElementById('editBeautyVal').textContent = d.beauty_score || 50;
+        document.getElementById('editType').value = d.type || '日常';
+        document.getElementById('editSide').value = d.side_caption || '';
+        document.getElementById('editCaption').value = d.caption || '';
+        document.getElementById('editReason').value = d.reason || '';
+        try { currentTags = (JSON.parse(d.tags || '[]') || []); } catch(e) { currentTags = []; }
+        renderSelectedTags();
+        renderTagDropdown('');
+        // 弹窗打开后自动聚焦标签输入框
+        setTimeout(function() { document.getElementById('editTagInput').focus(); }, 50);
+    });
     document.getElementById('editModal').style.display = 'block';
 }
 function closeEditModal() {
@@ -201,22 +229,45 @@ function closeEditModal() {
 document.addEventListener('DOMContentLoaded', function() {
     var input = document.getElementById('editTagInput');
     var dropdown = document.getElementById('tagDropdown');
+    var overlay = document.getElementById('editModal');
     if (!input) return;
 
     input.addEventListener('input', function() {
         renderTagDropdown(this.value);
     });
+
     input.addEventListener('keydown', function(e) {
+        var items = document.querySelectorAll('#tagDropdown .tag-dropdown-item');
         if (e.key === 'Enter') {
             e.preventDefault();
-            addTag(this.value);
+            if (tagActiveIndex >= 0 && items[tagActiveIndex]) {
+                items[tagActiveIndex].click();
+            } else {
+                addTag(this.value);
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            if (tagActiveIndex < items.length - 1) setActiveTagItem(tagActiveIndex + 1);
+            else setActiveTagItem(0);
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (tagActiveIndex > 0) setActiveTagItem(tagActiveIndex - 1);
+            else setActiveTagItem(items.length - 1);
         } else if (e.key === 'Escape') {
             dropdown.style.display = 'none';
+            input.blur();
         }
     });
+
     input.addEventListener('focus', function() {
         renderTagDropdown(this.value);
     });
+
+    // 失焦时延迟关闭下拉框，避免点击选项时已被隐藏
+    input.addEventListener('blur', function() {
+        setTimeout(function() { dropdown.style.display = 'none'; }, 150);
+    });
+
     // 点击下拉框外部时关闭
     document.addEventListener('click', function(e) {
         var selector = document.getElementById('tagSelector');
@@ -224,6 +275,13 @@ document.addEventListener('DOMContentLoaded', function() {
             dropdown.style.display = 'none';
         }
     });
+
+    // 弹窗滚动时关闭下拉框，避免选项悬浮错位
+    if (overlay) {
+        overlay.addEventListener('scroll', function() {
+            dropdown.style.display = 'none';
+        }, true);
+    }
 });
 
 function saveEdit(e) {
