@@ -216,8 +216,6 @@ function openEditModal(path) {
         try { currentTags = (JSON.parse(d.tags || '[]') || []); } catch(e) { currentTags = []; }
         renderSelectedTags();
         renderTagDropdown('');
-        // 弹窗打开后自动聚焦标签输入框
-        setTimeout(function() { document.getElementById('editTagInput').focus(); }, 50);
     });
     document.getElementById('editModal').style.display = 'block';
 }
