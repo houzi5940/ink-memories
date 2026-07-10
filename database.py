@@ -35,10 +35,17 @@ def init_db():
                 exif_city       TEXT,
                 exif_json       TEXT,
                 raw_json        TEXT,
+                perceptual_hash TEXT,
                 used_at         TEXT,
                 analyzed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # 兼容旧数据库：新增 perceptual_hash 字段
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(photo_scores)").fetchall()}
+        if "perceptual_hash" not in columns:
+            conn.execute("ALTER TABLE photo_scores ADD COLUMN perceptual_hash TEXT")
+
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_memory_score
             ON photo_scores(memory_score DESC)
@@ -90,21 +97,34 @@ def insert_photo(photo: dict):
              exif_datetime, exif_make, exif_model,
              exif_iso, exif_exposure_time, exif_f_number, exif_focal_length,
              exif_gps_lat, exif_gps_lon, exif_gps_alt, exif_city,
-             exif_json, raw_json, analyzed_at)
+             exif_json, raw_json, perceptual_hash, analyzed_at)
             VALUES
             (:path, :caption, :type, :memory_score, :beauty_score, :reason,
              :side_caption, :width, :height, :orientation,
              :exif_datetime, :exif_make, :exif_model,
              :exif_iso, :exif_exposure_time, :exif_f_number, :exif_focal_length,
              :exif_gps_lat, :exif_gps_lon, :exif_gps_alt, :exif_city,
-             :exif_json, :raw_json, CURRENT_TIMESTAMP)
+             :exif_json, :raw_json, :perceptual_hash, CURRENT_TIMESTAMP)
         """, photo)
         conn.commit()
 
 
+def get_all_photo_hashes() -> list[dict]:
+    """获取所有已记录感知哈希的照片（用于相似度比对）"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT path, perceptual_hash, memory_score
+            FROM photo_scores
+            WHERE perceptual_hash IS NOT NULL
+            """
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def update_photo(path: str, updates: dict):
     """更新照片的评分/标签/旁白（仅更新非空字段）"""
-    allowed = {"memory_score", "beauty_score", "type", "side_caption", "caption", "reason"}
+    allowed = {"memory_score", "beauty_score", "type", "side_caption", "caption", "reason", "perceptual_hash"}
     fields = {k: v for k, v in updates.items() if k in allowed and v is not None}
     if not fields:
         return

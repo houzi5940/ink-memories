@@ -277,7 +277,65 @@ def call_vlm(image_b64: str) -> dict:
     return {"error": last_error}
 
 
+def compute_avg_hash(image_path: str, hash_size: int = 8) -> str | None:
+    """计算照片的平均感知哈希（aHash），用于相似照片去重"""
+    try:
+        img = Image.open(image_path)
+        # 先校正 EXIF 旋转，保证相同场景不同朝向的照片哈希一致
+        try:
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        img = img.convert("L").resize((hash_size, hash_size), Image.LANCZOS)
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+        return "".join("1" if p >= avg else "0" for p in pixels)
+    except Exception as e:
+        logger.warning(f"感知哈希计算失败 {image_path}: {e}")
+        return None
 
+
+def hamming_distance(hash1: str, hash2: str) -> int:
+    """计算两个哈希字符串的海明距离"""
+    if not hash1 or not hash2 or len(hash1) != len(hash2):
+        return float("inf")
+    return sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
+
+
+def deduplicate_similar_photos(phash: str, new_path: str, new_memory_score: float) -> float:
+    """
+    相似照片去重：在已有照片中找出与 new_path 相似的记录，只保留分数最高的一张，
+    其余照片的回忆分降至惩罚分，返回 new_path 应使用的回忆分。
+    """
+    if not phash:
+        return new_memory_score
+
+    existing = database.get_all_photo_hashes()
+    similar = [
+        row for row in existing
+        if hamming_distance(phash, row.get("perceptual_hash")) <= config.SIMILARITY_THRESHOLD
+    ]
+
+    if not similar:
+        return new_memory_score
+
+    # 把新照片也加入候选，找出最高分
+    candidates = similar + [{"path": new_path, "memory_score": new_memory_score}]
+    top = max(candidates, key=lambda x: x["memory_score"])
+
+    lowered = 0
+    for c in candidates:
+        if c["path"] == top["path"]:
+            continue
+        database.update_photo(c["path"], {"memory_score": config.SIMILARITY_PENALTY_SCORE})
+        lowered += 1
+
+    if lowered:
+        kept = "新照片" if top["path"] == new_path else "已有照片"
+        logger.info(f"发现 {lowered} 张相似照片，已降分处理（保留最高分：{kept} {top['path']}）")
+
+    return top["memory_score"] if top["path"] == new_path else config.SIMILARITY_PENALTY_SCORE
 
 
 def scan_photos() -> list[str]:
@@ -338,21 +396,53 @@ def analyze_one_photo(filepath: str) -> dict | None:
         logger.error(f"VLM 评分失败 {filepath}: {vlm_result['error']}")
         return None
 
+    # 计算感知哈希并做相似照片去重
+    phash = compute_avg_hash(filepath)
+    memory_score = deduplicate_similar_photos(phash, filepath, vlm_result["memory_score"])
+
     # 组装记录（旁白与专属描述统一在 daily 中生成）
     record = {
         "path": filepath,
         "type": vlm_result["type"],
-        "memory_score": vlm_result["memory_score"],
+        "memory_score": memory_score,
         "beauty_score": vlm_result["beauty_score"],
         "reason": vlm_result["reason"],
         "width": width,
         "height": height,
         "orientation": orientation,
         "raw_json": json.dumps(vlm_result, ensure_ascii=False),
+        "perceptual_hash": phash,
         **exif,
     }
 
     return record
+
+
+def backfill_perceptual_hashes():
+    """为数据库中还没有感知哈希的照片回刷哈希（用于启用去重功能后的旧数据迁移）"""
+    database.init_db()
+
+    with database.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT path FROM photo_scores WHERE perceptual_hash IS NULL"
+        ).fetchall()
+
+    paths = [row["path"] for row in rows]
+    if not paths:
+        logger.info("所有照片已有感知哈希，无需回刷")
+        return
+
+    logger.info(f"开始为 {len(paths)} 张照片回刷感知哈希...")
+    success = 0
+    fail = 0
+    for filepath in paths:
+        phash = compute_avg_hash(filepath)
+        if phash:
+            database.update_photo(filepath, {"perceptual_hash": phash})
+            success += 1
+        else:
+            fail += 1
+    logger.info(f"回刷完成: 成功 {success}, 失败 {fail}")
 
 
 def run_analysis():

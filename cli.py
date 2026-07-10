@@ -28,6 +28,9 @@ def main():
     # daily
     p_daily = sub.add_parser("daily", help="显示今日精选")
 
+    # backfill-hashes
+    p_backfill = sub.add_parser("backfill-hashes", help="为已有照片回刷感知哈希（启用去重后的数据迁移）")
+
     args = parser.parse_args()
 
     if args.command == "analyze":
@@ -64,6 +67,10 @@ def main():
                 print()
         else:
             print("  暂无精选，请先运行 analyze 命令。")
+
+    elif args.command == "backfill-hashes":
+        from analyzer import backfill_perceptual_hashes
+        backfill_perceptual_hashes()
 
     else:
         parser.print_help()
