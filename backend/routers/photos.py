@@ -129,3 +129,60 @@ def api_photo_update(payload: PhotoUpdatePayload, db=Depends(get_db)):
         db.update_photo(path, updates)
         return {"status": "ok", "updated": updates}
     raise HTTPException(status_code=400, detail="没有可更新的字段")
+
+
+# ============================================================
+# 人工审核 API
+# ============================================================
+
+class ReviewPathsPayload(BaseModel):
+    paths: list[str]
+
+
+@router.get("/api/review/photos")
+def api_review_photos(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """获取未评分的照片列表（按文件修改时间排序，最新的在前）"""
+    from backend.database import scan_unanalyzed_photos, get_unanalyzed_count
+
+    photos = scan_unanalyzed_photos(limit=limit, offset=offset)
+    total = get_unanalyzed_count()
+    return {"photos": photos, "total": total}
+
+
+@router.post("/api/review/submit")
+def api_review_submit(payload: ReviewPathsPayload):
+    """提交选中照片进行 VLM 评分"""
+    if not payload.paths:
+        raise HTTPException(status_code=400, detail="没有选择照片")
+
+    from backend.analyzer import analyze_selected_photos
+
+    def run():
+        try:
+            analyze_selected_photos(payload.paths)
+        except Exception as e:
+            logger.error(f"选中照片分析失败: {e}")
+            pr.report_done()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
+    return {
+        "status": "started",
+        "message": f"已提交 {len(payload.paths)} 张照片进行分析",
+    }
+
+
+@router.post("/api/review/skip")
+def api_review_skip(payload: ReviewPathsPayload):
+    """跳过未勾选的照片（标记为已处理）"""
+    if not payload.paths:
+        return {"status": "ok", "skipped": 0}
+
+    from backend.database import batch_skip_photos
+
+    batch_skip_photos(payload.paths)
+    return {"status": "ok", "skipped": len(payload.paths)}

@@ -95,3 +95,9 @@ def search(request: Request, q: Optional[str] = "", db=Depends(get_db)):
     return templates.TemplateResponse(
         request, "search.html", {"photos": photos, "query": query}
     )
+
+
+@router.get("/review", response_class=HTMLResponse)
+def review_page(request: Request):
+    """人工审核页"""
+    return templates.TemplateResponse(request, "review.html")

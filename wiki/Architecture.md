@@ -23,7 +23,7 @@
 |----|------|
 | **Web 框架** | FastAPI (Python 3.10+) |
 | **服务端渲染** | Jinja2 模板 |
-| **客户端组件** | React 18 + TypeScript |
+| **客户端组件** | React 18 + TypeScript（TagSelector + 人工审核页）|
 | **UI 框架** | Tailwind CSS + shadcn/ui |
 | **图标** | lucide-react |
 | **数据库** | SQLite |
@@ -47,11 +47,15 @@ ink-memories/
 │   ├── dependencies.py   # FastAPI 依赖注入
 │   ├── templates.py      # Jinja2 模板引擎配置
 │   └── routers/
-│       ├── pages.py      # HTML 页面路由
-│       ├── photos.py     # 照片 API（浏览/编辑/触发分析）
+│       ├── pages.py      # HTML 页面路由（含 /review 审核页）
+│       ├── photos.py     # 照片 API（浏览/编辑/触发分析/审核提交/跳过）
 │       └── tags.py       # 标签 API
 ├── frontend/             # 前端
 │   ├── src/              # React 源码
+│   │   ├── main.tsx      # TagSelector 入口
+│   │   ├── review/       # 人工审核页（独立入口，三种模式）
+│   │   │   ├── main.tsx / App.tsx / api.ts / types.ts
+│   │   │   └── components/ (GridMode / SwipeMode / MonthMode)
 │   ├── templates/        # Jinja2 模板
 │   └── static/           # 样式 + 构建产物
 └── cli.py                # 项目入口
@@ -95,6 +99,34 @@ run_analysis()
   └─ 5. pr.report_done()           → phase="done"
 ```
 
+### 人工审核流程
+
+```
+用户访问 /review (React SPA)
+  │
+  ├─ GET /api/review/photos?limit=20
+  │    scan_unanalyzed_photos()
+  │    ├─ os.walk(PHOTO_DIR)
+  │    ├─ 排除已分析的（get_analyzed_paths()）
+  │    └─ 按文件 mtime 降序 → 返回 20 张
+  │
+  ├─ 用户勾选/滑动/按月选择
+  │   ┌─────────────┬──────────────┬──────────────┐
+  │   │ 平铺 (Grid) │ 滑动 (Swipe) │ 按月 (Month) │
+  │   ├─────────────┼──────────────┼──────────────┤
+  │   │ 点击切换选中 │ 左滑=跳过   │ 按月份折叠   │
+  │   │ 跨批保持选中 │ 右滑=选中   │ 整月全选     │
+  │   └─────────────┴──────────────┴──────────────┘
+  │
+  ├─ POST /api/review/submit {paths: [...]}
+  │    analyze_selected_photos(paths)
+  │    └─ ThreadPoolExecutor → analyze_one_photo(path)
+  │
+  └─ POST /api/review/skip {paths: [...]}
+       batch_skip_photos(paths)
+       └─ INSERT score=0 → 标记为已处理
+```
+
 ### 每日精选流程
 
 ```
@@ -122,6 +154,6 @@ get_daily_summary()
 ## 线程模型
 
 - **主线程**: Uvicorn 处理 HTTP 请求
-- **后台线程**: 照片分析（POST /api/analyze 触发）
+- **后台线程**: 照片分析（POST /api/analyze 或 POST /api/review/submit 触发）
 - **并发分析**: ThreadPoolExecutor（可配置 CONCURRENCY）
 - **进度同步**: threading.Lock 保护 progress 状态

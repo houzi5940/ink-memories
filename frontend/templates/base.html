@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='js/assets/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='js/assets/index.css') }}">
 </head>
 <body>
 
@@ -19,6 +19,7 @@
             <a href="/gallery" class="nav-link {% if request.path == '/gallery' %}active{% endif %}">相册</a>
             <a href="/stats" class="nav-link {% if request.path == '/stats' %}active{% endif %}">统计</a>
             <a href="/search" class="nav-link {% if request.path == '/search' %}active{% endif %}">搜索</a>
+            <a href="/review" class="nav-link {% if request.path == '/review' %}active{% endif %}">审核</a>
         </div>
     </div>
 </nav>

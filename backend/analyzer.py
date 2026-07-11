@@ -498,3 +498,46 @@ def run_analysis():
 
     logger.info(f"分析完成: 成功 {success_count}, 失败 {fail_count}")
     pr.report_done()
+
+
+def analyze_selected_photos(paths: list[str]):
+    """仅对指定路径的照片运行 VLM 评分（人工审核勾选后调用）"""
+    database.init_db()
+
+    total = len(paths)
+    if total == 0:
+        logger.info("没有选中的照片")
+        return
+
+    pr.start_analysis(total=total)
+    pr.report_analyzing()
+
+    logger.info(f"开始分析 {total} 张选中照片，并发数: {config.CONCURRENCY}")
+
+    success_count = 0
+    fail_count = 0
+
+    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
+        futures = {executor.submit(analyze_one_photo, p): p for p in paths}
+
+        for future in as_completed(futures):
+            filepath = futures[future]
+            try:
+                record = future.result()
+                if record:
+                    database.insert_photo(record)
+                    success_count += 1
+                    logger.info(f"✓ [{success_count}/{total}] {os.path.basename(filepath)} "
+                               f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
+                               f"[{record['type']}]")
+                    pr.report_tick(filepath, success=True)
+                else:
+                    fail_count += 1
+                    pr.report_tick(filepath, success=False)
+            except Exception as e:
+                fail_count += 1
+                logger.error(f"✗ {filepath}: {e}")
+                pr.report_tick(filepath, success=False)
+
+    logger.info(f"选中照片分析完成: 成功 {success_count}, 失败 {fail_count}")
+    pr.report_done()

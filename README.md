@@ -5,6 +5,7 @@
 ## ✨ 功能
 
 - **AI 智能评分** — 双维度评分（回忆值 + 美观值），自动分类（人物/旅行/猫咪/美食…）
+- **人工审核** — 平铺勾选 / 滑动选择(Tinder风格) / 按月浏览三种模式，节省 token 消耗，只对精选照片执行 VLM 评分
 - **诗意旁白** — 为每张照片生成一句话文案
 - **每日精选** — 从「历史上的今天」中选出最值得回忆的照片，每日全新描述
 - **WebUI 浏览** — 按类型、评分、日期浏览，支持搜索描述/标签
@@ -68,12 +69,21 @@ ink-memories/
 │   ├── dependencies.py         # FastAPI 依赖注入
 │   ├── templates.py            # Jinja2 模板配置
 │   └── routers/
-│       ├── pages.py            # 页面路由（首页/相册/统计/搜索）
+│       ├── pages.py            # 页面路由（首页/相册/统计/搜索/审核）
 │       ├── photos.py           # 照片 API（浏览/编辑/分析）
 │       └── tags.py             # 标签 API
 ├── frontend/                   # React + TypeScript + Tailwind
 │   ├── src/
-│   │   ├── main.tsx            # React 入口
+│   │   ├── main.tsx            # React 入口（TagSelector）
+│   │   ├── review/
+│   │   │   ├── main.tsx        # 人工审核页 React 入口
+│   │   │   ├── App.tsx         # 审核主应用（3 种模式+状态管理）
+│   │   │   ├── api.ts          # 审核 API 请求封装
+│   │   │   ├── types.ts        # 类型定义
+│   │   │   └── components/
+│   │   │       ├── GridMode.tsx    # 平铺勾选模式
+│   │   │       ├── SwipeMode.tsx   # 滑动选择模式（Tinder风格）
+│   │   │       └── MonthMode.tsx   # 按月浏览模式
 │   │   ├── index.css           # Tailwind 基础样式
 │   │   ├── components/
 │   │   │   ├── TagSelector.tsx       # 标签下拉选组件
@@ -84,7 +94,8 @@ ink-memories/
 │   │   ├── index.html          # 今日精选
 │   │   ├── gallery.html        # 照片库（排序/筛选/分页）
 │   │   ├── stats.html          # 统计仪表盘
-│   │   └── search.html         # 搜索页面
+│   │   ├── search.html         # 搜索页面
+│   │   └── review.html         # 人工审核页（独立 React SPA）
 │   ├── static/
 │   │   └── style.css           # 应用样式（现代温暖风格）
 │   ├── package.json
@@ -122,11 +133,15 @@ ink-memories/
 | `GET` | `/gallery` | 照片库 |
 | `GET` | `/stats` | 统计页面 |
 | `GET` | `/search` | 搜索页面 |
+| `GET` | `/review` | 人工审核页（React SPA，三种模式） |
 | `GET` | `/photo/{path}` | 照片文件服务 |
 | `POST` | `/api/analyze` | 触发分析（后台） |
 | `GET` | `/api/analyze/progress` | 分析进度轮询 |
 | `GET` | `/api/photo/detail` | 照片详情 |
 | `POST` | `/api/photo/update` | 编辑照片 |
+| `GET` | `/api/review/photos` | 未评分照片列表（分页） |
+| `POST` | `/api/review/submit` | 提交选中照片 VLM 评分 |
+| `POST` | `/api/review/skip` | 跳过未选中照片 |
 | `GET` | `/api/tags` | 标签列表 |
 | `GET` | `/api/status` | 系统状态 |
 

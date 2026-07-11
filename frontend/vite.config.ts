@@ -15,9 +15,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: './index.html',
+        review: './review.html',
       },
       output: {
-        entryFileNames: 'main.js',
+        entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
         assetFileNames: (assetInfo) => {
           const info = assetInfo.name?.split('.') ?? []

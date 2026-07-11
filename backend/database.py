@@ -310,3 +310,94 @@ def clear_daily_captions(date: str):
     with get_conn() as conn:
         conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
         conn.commit()
+
+
+# ============================================================
+# 人工审核 - 未评分照片查询
+# ============================================================
+
+def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
+    """扫描 PHOTO_DIR，返回不在 photo_scores 中的照片路径（按 mtime 降序）"""
+    import os
+    from pathlib import Path
+    from backend.config import PHOTO_DIR, SUPPORTED_EXTENSIONS, EXCLUDE_DIRS
+
+    analyzed = get_analyzed_paths()
+    photo_dir = Path(PHOTO_DIR)
+    if not photo_dir.exists():
+        return []
+
+    candidates: list[tuple[str, float]] = []  # (path, mtime)
+
+    for root, dirs, files in os.walk(photo_dir):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for f in files:
+            ext = Path(f).suffix.lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            full_path = str(Path(root) / f)
+            if full_path in analyzed:
+                continue
+            try:
+                mtime = os.path.getmtime(full_path)
+            except OSError:
+                mtime = 0
+            candidates.append((full_path, mtime))
+
+    # 按修改时间降序（最新的优先展示）
+    candidates.sort(key=lambda x: -x[1])
+    total = len(candidates)
+    page = candidates[offset : offset + limit]
+
+    return [
+        {
+            "path": path,
+            "date": "",  # 由前端展示时从 EXIF 获取
+            "type": "",
+        }
+        for path, _ in page
+    ]
+
+
+def get_unanalyzed_count() -> int:
+    """未评分照片总数"""
+    import os
+    from pathlib import Path
+    from backend.config import PHOTO_DIR, SUPPORTED_EXTENSIONS, EXCLUDE_DIRS
+
+    analyzed = get_analyzed_paths()
+    photo_dir = Path(PHOTO_DIR)
+    if not photo_dir.exists():
+        return 0
+
+    count = 0
+    for root, dirs, files in os.walk(photo_dir):
+        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+        for f in files:
+            ext = Path(f).suffix.lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            full_path = str(Path(root) / f)
+            if full_path not in analyzed:
+                count += 1
+    return count
+
+
+def batch_skip_photos(paths: list[str]):
+    """将未勾选的照片标记为跳过（插入 photo_scores，score=0）"""
+    import json
+    from backend.config import SUPPORTED_EXTENSIONS
+    from pathlib import Path
+
+    with get_conn() as conn:
+        for path in paths:
+            ext = Path(path).suffix.lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                continue
+            conn.execute(
+                """INSERT OR IGNORE INTO photo_scores
+                   (path, memory_score, beauty_score, type, reason, raw_json, analyzed_at)
+                   VALUES (?, 0, 0, '跳过', '人工审核跳过', '{}', CURRENT_TIMESTAMP)""",
+                (path,),
+            )
+        conn.commit()

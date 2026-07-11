@@ -34,6 +34,9 @@
 
 **路径说明：** path 可以是相对路径（相对于 PHOTO_DIR）或绝对路径。自动限制在 PHOTO_DIR 内防止路径穿越。
 
+### `GET /review`
+人工审核页。三种交互模式 — 平铺勾选、滑动选择（Tinder 风格）、按月浏览。React SPA，独立加载。
+
 ---
 
 ## API 接口
@@ -117,6 +120,51 @@
 ```
 
 按使用次数降序排列。
+
+### `POST /api/review/submit`
+提交选中照片进行 VLM 评分（后台线程异步执行）。
+
+**请求体（JSON）：**
+```json
+{"paths": ["/photos/IMG_001.jpg", "/photos/IMG_002.jpg"]}
+```
+
+**响应：**
+```json
+{"status": "started", "message": "已提交 2 张照片进行分析"}
+```
+
+### `POST /api/review/skip`
+跳过未选中的照片（写入 photo_scores，memory_score=0，标记为已处理）。
+
+**请求体（JSON）：**
+```json
+{"paths": ["/photos/IMG_003.jpg"]}
+```
+
+**响应：**
+```json
+{"status": "ok", "skipped": 1}
+```
+
+### `GET /api/review/photos`
+获取未评分的照片列表（分页，按文件修改时间降序）。
+
+**查询参数：**
+| 参数 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `limit` | int | 20 | 每页数量（1-100）|
+| `offset` | int | 0 | 偏移量 |
+
+**响应：**
+```json
+{
+  "photos": [
+    {"path": "/photos/IMG_001.jpg", "date": "", "type": ""}
+  ],
+  "total": 50
+}
+```
 
 ### `GET /api/status`
 系统状态概览。

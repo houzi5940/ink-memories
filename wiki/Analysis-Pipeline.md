@@ -274,3 +274,36 @@ pr.report_done()     # running=false, phase="done"
 | `VLM_MAX_LONG_EDGE` | 2560px | encode_image 压缩尺寸 |
 | `SIMILARITY_THRESHOLD` | 5/64 | 去重敏感度（越小越严格）|
 | `SIMILARITY_PENALTY_SCORE` | 10 | 重复照片降分目标值 |
+
+## 人工审核评分流：`analyze_selected_photos(paths)`
+
+此函数由 `POST /api/review/submit` 触发，逻辑与 `run_analysis()` 完全一致，但只处理用户圈选的照片，不扫描全目录。
+
+```python
+def analyze_selected_photos(paths: list[str]):
+    database.init_db()
+    total = len(paths)
+
+    pr.start_analysis(total=total)
+    pr.report_analyzing()
+
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+        futures = {executor.submit(analyze_one_photo, p): p for p in paths}
+
+        for future in as_completed(futures):
+            record = future.result()
+            if record:
+                database.insert_photo(record)    # 写入 SQLite
+            pr.report_tick(filepath, success=bool(record))
+
+    pr.report_done()
+```
+
+### 与 `run_analysis()` 的区别
+
+| 环节 | `run_analysis()` | `analyze_selected_photos()` |
+|------|-----------------|----------------------------|
+| 照片来源 | `scan_photos()` 扫描全目录 | 前端传入的 `paths` 列表 |
+| 增量跳过 | 跳过已分析路径 | 不跳过（用户主动选的） |
+| `batch_skip_photos()` | 不涉及 | 未被选中的照片 score=0 入库 |
+| 适用场景 | 全量/定时分析 | 人工审核后只对选中照片评分 |
