@@ -8,7 +8,7 @@
 </div>
 
 <form class="search-form" action="/search" method="get">
-  <input type="text" name="q" value="{{ query }}" placeholder="搜索描述、类型、地点..." class="search-input" autofocus>
+  <input type="text" name="q" value="{{ query }}" placeholder="搜索描述、类型、标签..." class="search-input" autofocus>
   <button type="submit" class="btn btn-primary">搜索</button>
 </form>
 
@@ -19,12 +19,20 @@
 <div class="photo-grid">
   {% for photo in photos %}
   <div class="photo-card">
-    <div class="img-wrap" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
-      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
+    <div class="img-wrap{% if photo.height and photo.width and photo.height > photo.width %} portrait{% endif %}" onclick="openLightbox('/photo/{{ photo.path | relphoto }}')">
+      <img src="/photo/{{ photo.path | relphoto }}" alt="" loading="lazy">
     </div>
     <div class="card-body">
       {% if photo.side_caption %}
       <div class="card-caption">"{{ photo.side_caption }}"</div>
+      {% endif %}
+      {% set user_tags = photo.tags | fromjson %}
+      {% if user_tags %}
+      <div class="card-tags">
+        {% for tag in user_tags %}
+        <a href="/gallery?tag={{ tag }}" class="user-tag">{{ tag }}</a>
+        {% endfor %}
+      </div>
       {% endif %}
       <div class="card-meta">
         <span class="tag">{{ photo.type }}</span>

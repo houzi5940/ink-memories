@@ -18,10 +18,19 @@
   </div>
   <div class="control-group">
     <span class="label">筛选</span>
-    <a href="/gallery" class="{% if not current_type %}active{% endif %}">全部</a>
+    <a href="/gallery" class="{% if not current_type and not current_tag %}active{% endif %}">全部</a>
     {% for t in ["人物","孩子","猫咪","家庭","旅行","风景","美食","宠物","日常"] %}
     <a href="/gallery?type={{ t }}" class="{% if current_type == t %}active{% endif %}">{{ t }}</a>
     {% endfor %}
+  </div>
+  <div class="control-group">
+    <span class="label">标签</span>
+    <form method="get" action="/gallery" class="tag-search-form" style="display:inline">
+      <input type="text" name="tag" value="{{ current_tag }}" placeholder="输入标签筛选..." class="tag-search-input">
+      {% if current_tag %}
+      <a href="/gallery" class="clear-tag">清除</a>
+      {% endif %}
+    </form>
   </div>
 </div>
 
@@ -29,12 +38,20 @@
 <div class="photo-grid">
   {% for photo in photos %}
   <div class="photo-card">
-    <div class="img-wrap" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
-      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
+    <div class="img-wrap{% if photo.height and photo.width and photo.height > photo.width %} portrait{% endif %}" onclick="openLightbox('/photo/{{ photo.path | relphoto }}')">
+      <img src="/photo/{{ photo.path | relphoto }}" alt="" loading="lazy">
     </div>
     <div class="card-body">
       {% if photo.side_caption %}
       <div class="card-caption">"{{ photo.side_caption }}"</div>
+      {% endif %}
+      {% set user_tags = photo.tags | fromjson %}
+      {% if user_tags %}
+      <div class="card-tags">
+        {% for tag in user_tags %}
+        <a href="/gallery?tag={{ tag }}" class="user-tag">{{ tag }}</a>
+        {% endfor %}
+      </div>
       {% endif %}
       <div class="card-meta">
         <span class="tag">{{ photo.type }}</span>
@@ -60,11 +77,11 @@
 {% if total_pages > 1 %}
 <div class="pagination">
   {% if page > 1 %}
-  <a href="?page={{ page-1 }}&order={{ current_order }}&type={{ current_type }}" class="btn">← 上一页</a>
+  <a href="?page={{ page-1 }}&order={{ current_order }}&type={{ current_type }}&tag={{ current_tag }}" class="btn">← 上一页</a>
   {% endif %}
   <span class="page-info">{{ page }} / {{ total_pages }}</span>
   {% if page < total_pages %}
-  <a href="?page={{ page+1 }}&order={{ current_order }}&type={{ current_type }}" class="btn">下一页 →</a>
+  <a href="?page={{ page+1 }}&order={{ current_order }}&type={{ current_type }}&tag={{ current_tag }}" class="btn">下一页 →</a>
   {% endif %}
 </div>
 {% endif %}

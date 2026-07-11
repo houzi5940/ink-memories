@@ -13,8 +13,8 @@
 <div class="daily-list">
   {% for photo in summary.photos %}
   <div class="daily-item">
-    <div class="daily-img" onclick="openLightbox('/photo/{{ photo.path.lstrip('/') }}')">
-      <img src="/photo/{{ photo.path.lstrip('/') }}" alt="" loading="lazy">
+    <div class="daily-img" onclick="openLightbox('/photo/{{ photo.path | relphoto }}')">
+      <img src="/photo/{{ photo.path | relphoto }}" alt="" loading="lazy">
     </div>
     <div class="daily-body">
       {% if photo.daily_side_caption %}
@@ -22,6 +22,14 @@
       {% endif %}
       {% if photo.daily_caption %}
       <div class="daily-desc">{{ photo.daily_caption }}</div>
+      {% endif %}
+      {% set user_tags = photo.tags | fromjson %}
+      {% if user_tags %}
+      <div class="card-tags">
+        {% for tag in user_tags %}
+        <a href="/gallery?tag={{ tag }}" class="user-tag">{{ tag }}</a>
+        {% endfor %}
+      </div>
       {% endif %}
       <div class="daily-meta">
         <span class="tag">{{ photo.type }}</span>
@@ -44,7 +52,7 @@
   <div class="icon">📸</div>
   <h2>暂无精选</h2>
   <p>还没有足够的照片数据，请先运行照片分析。</p>
-  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>alert(d.message))" class="btn btn-primary">开始分析</button>
+  <button onclick="fetch('/api/analyze',{method:'POST'}).then(r=>r.json()).then(d=>{if(!d.error)window.dispatchEvent(new Event('analyze:start'));alert(d.message)}).catch(()=>alert('请求失败'))" data-action="analyze" class="btn btn-primary">开始分析</button>
 </div>
 {% endif %}
 {% endblock %}

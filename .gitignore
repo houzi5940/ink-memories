@@ -1,6 +1,17 @@
 .env
 data/
+.local-data/
 __pycache__/
 *.pyc
 *.db
 .DS_Store
+venv/
+test_photos/
+seed_local.py
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/static/js/
+node_modules/
+

@@ -1,11 +1,12 @@
-"""照片分析器 — 调用 VLM API 进行评分和文案生成"""
+"""照片分析器 — 调用 VLM API 进行照片分析与评分"""
+
+from __future__ import annotations
 
 import base64
 import io
 import json
 import logging
 import os
-import random
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -13,10 +14,30 @@ from pathlib import Path
 import requests
 from PIL import Image, ExifTags
 
-import config
-import database
+from backend import config, database
+from backend import progress as pr
 
 logger = logging.getLogger(__name__)
+
+# 注册 HEIC/HEIF 解码支持（必须在 Pillow 打开任何 HEIC 文件前导入）
+try:
+    import pillow_heif  # noqa: F401  — 自动注册到 Pillow 的 Image.open()
+    from pillow_heif import open_heif
+except ImportError:
+    open_heif = None
+    logger.warning("pillow_heif 未安装，HEIC/HEIF 照片将无法处理")
+
+
+def open_image(image_path: str) -> Image.Image:
+    """打开图片，HEIC/HEIF 使用 pillow_heif 显式解码。"""
+    ext = Path(image_path).suffix.lower()
+    if ext in (".heic", ".heif") and open_heif is not None:
+        try:
+            heif_file = open_heif(image_path)
+            return Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+        except Exception as e:
+            logger.warning(f"HEIC 解码失败 {image_path}: {e}")
+    return Image.open(image_path)
 
 # ============================================================
 # VLM 提示词（基于 InkTime 优化）
@@ -25,12 +46,11 @@ logger = logging.getLogger(__name__)
 SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任务是分析用户的照片，返回严格的 JSON。
 
 你需要完成：
-1. caption：80-200字的中文照片描述，描述照片中的场景、人物、动作、环境
-2. type：照片分类，从以下选项中选一个或两个（用/分隔）：
+1. type：照片分类，从以下选项中选一个或两个（用/分隔）：
    人物/孩子/猫咪/家庭/旅行/风景/美食/宠物/日常/文档/杂物/其他
-3. memory_score：0-100的回忆价值评分
-4. beauty_score：0-100的美观度评分
-5. reason：简短的评分理由（20字以内）
+2. memory_score：0-100的回忆价值评分
+3. beauty_score：0-100的美观度评分
+4. reason：简短的评分理由（20字以内）
 
 ## memory_score 评分标准：
 
@@ -68,30 +88,13 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 - 80-100：摄影级作品
 
 输出格式（严格 JSON，不要包含 markdown 代码块标记）：
-{"caption":"...","type":"...","memory_score":75,"beauty_score":60,"reason":"..."}"""
-
-SIDE_CAPTION_SYSTEM_PROMPT = """你是一个为照片写旁白的文案高手。规则：
-
-1. 为照片写一句中文旁白，8-24字，最多30字
-2. 风格：日常的微妙情感，可以是淡淡的幽默、安静的观察、或不经意的感动
-3. 禁止使用以下词汇：世界、梦、时光、岁月、温柔、治愈、美好、回忆、珍惜、感动
-4. 禁止使用"这张照片"、"这一刻"、"这个瞬间"等表述
-5. 不要用比喻句式（像...一样）
-6. 要具体、有画面感，不要抽象抒情
-
-好的例子：
-- "地铁上睡着了，口水流到了包上"
-- "这盘菜她做了三次才成功"
-- "猫占据了键盘，工作只能等等了"
-- "排队两小时，拍照五分钟"
-
-输出：只返回旁白文字，不要引号，不要其他内容。"""
+{"type":"...","memory_score":75,"beauty_score":60,"reason":"..."}"""
 
 
 def encode_image(image_path: str) -> tuple[str, int, int]:
     """读取图片，压缩到最大长边，返回 base64 和尺寸"""
     try:
-        img = Image.open(image_path)
+        img = open_image(image_path)
     except Exception as e:
         logger.warning(f"无法打开图片 {image_path}: {e}")
         return None, 0, 0
@@ -140,7 +143,7 @@ def extract_exif(image_path: str) -> dict:
         "exif_json": "{}",
     }
     try:
-        img = Image.open(image_path)
+        img = open_image(image_path)
         raw_exif = img._getexif()
         if not raw_exif:
             return exif_data
@@ -274,7 +277,7 @@ def call_vlm(image_b64: str) -> dict:
             result = json.loads(content)
 
             # 校验必要字段
-            required = ("caption", "type", "memory_score", "beauty_score", "reason")
+            required = ("type", "memory_score", "beauty_score", "reason")
             if not all(k in result for k in required):
                 raise ValueError(f"缺少字段: {set(required) - set(result.keys())}")
 
@@ -296,35 +299,65 @@ def call_vlm(image_b64: str) -> dict:
     return {"error": last_error}
 
 
-def generate_side_caption(caption: str, photo_type: str) -> str:
-    """生成诗意旁白"""
+def compute_avg_hash(image_path: str, hash_size: int = 8) -> str | None:
+    """计算照片的平均感知哈希（aHash），用于相似照片去重"""
     try:
-        channel = config.API_CHANNELS[0]
-        resp = requests.post(
-            channel["api_url"],
-            headers={
-                "Authorization": f"Bearer {channel['api_key']}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": channel["model_name"],
-                "messages": [
-                    {"role": "system", "content": SIDE_CAPTION_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"照片描述：{caption}\n照片类型：{photo_type}"},
-                ],
-                "temperature": 0.7,
-                "max_tokens": 64,
-            },
-            timeout=30,
-        )
-        resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"].strip()
-        # 清理引号
-        text = text.strip('"').strip("'").strip("「」").strip("""""")
-        return text[:30] if text else None
+        img = open_image(image_path)
+        # 先校正 EXIF 旋转，保证相同场景不同朝向的照片哈希一致
+        try:
+            from PIL import ImageOps
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+        img = img.convert("L").resize((hash_size, hash_size), Image.LANCZOS)
+        pixels = list(img.getdata())
+        avg = sum(pixels) / len(pixels)
+        return "".join("1" if p >= avg else "0" for p in pixels)
     except Exception as e:
-        logger.warning(f"旁白生成失败: {e}")
+        logger.warning(f"感知哈希计算失败 {image_path}: {e}")
         return None
+
+
+def hamming_distance(hash1: str, hash2: str) -> int:
+    """计算两个哈希字符串的海明距离"""
+    if not hash1 or not hash2 or len(hash1) != len(hash2):
+        return float("inf")
+    return sum(c1 != c2 for c1, c2 in zip(hash1, hash2))
+
+
+def deduplicate_similar_photos(phash: str, new_path: str, new_memory_score: float) -> float:
+    """
+    相似照片去重：在已有照片中找出与 new_path 相似的记录，只保留分数最高的一张，
+    其余照片的回忆分降至惩罚分，返回 new_path 应使用的回忆分。
+    """
+    if not phash:
+        return new_memory_score
+
+    existing = database.get_all_photo_hashes()
+    similar = [
+        row for row in existing
+        if hamming_distance(phash, row.get("perceptual_hash")) <= config.SIMILARITY_THRESHOLD
+    ]
+
+    if not similar:
+        return new_memory_score
+
+    # 把新照片也加入候选，找出最高分
+    candidates = similar + [{"path": new_path, "memory_score": new_memory_score}]
+    top = max(candidates, key=lambda x: x["memory_score"])
+
+    lowered = 0
+    for c in candidates:
+        if c["path"] == top["path"]:
+            continue
+        database.update_photo(c["path"], {"memory_score": config.SIMILARITY_PENALTY_SCORE})
+        lowered += 1
+
+    if lowered:
+        kept = "新照片" if top["path"] == new_path else "已有照片"
+        logger.info(f"发现 {lowered} 张相似照片，已降分处理（保留最高分：{kept} {top['path']}）")
+
+    return top["memory_score"] if top["path"] == new_path else config.SIMILARITY_PENALTY_SCORE
 
 
 def scan_photos() -> list[str]:
@@ -385,35 +418,67 @@ def analyze_one_photo(filepath: str) -> dict | None:
         logger.error(f"VLM 评分失败 {filepath}: {vlm_result['error']}")
         return None
 
-    # 生成旁白
-    side_caption = generate_side_caption(vlm_result["caption"], vlm_result["type"])
+    # 计算感知哈希并做相似照片去重
+    phash = compute_avg_hash(filepath)
+    memory_score = deduplicate_similar_photos(phash, filepath, vlm_result["memory_score"])
 
-    # 组装记录
+    # 组装记录（旁白与专属描述统一在 daily 中生成）
     record = {
         "path": filepath,
-        "caption": vlm_result["caption"],
         "type": vlm_result["type"],
-        "memory_score": vlm_result["memory_score"],
+        "memory_score": memory_score,
         "beauty_score": vlm_result["beauty_score"],
         "reason": vlm_result["reason"],
-        "side_caption": side_caption,
         "width": width,
         "height": height,
         "orientation": orientation,
         "raw_json": json.dumps(vlm_result, ensure_ascii=False),
+        "perceptual_hash": phash,
         **exif,
     }
 
     return record
 
 
+def backfill_perceptual_hashes():
+    """为数据库中还没有感知哈希的照片回刷哈希（用于启用去重功能后的旧数据迁移）"""
+    database.init_db()
+
+    with database.get_conn() as conn:
+        rows = conn.execute(
+            "SELECT path FROM photo_scores WHERE perceptual_hash IS NULL"
+        ).fetchall()
+
+    paths = [row["path"] for row in rows]
+    if not paths:
+        logger.info("所有照片已有感知哈希，无需回刷")
+        return
+
+    logger.info(f"开始为 {len(paths)} 张照片回刷感知哈希...")
+    success = 0
+    fail = 0
+    for filepath in paths:
+        phash = compute_avg_hash(filepath)
+        if phash:
+            database.update_photo(filepath, {"perceptual_hash": phash})
+            success += 1
+        else:
+            fail += 1
+    logger.info(f"回刷完成: 成功 {success}, 失败 {fail}")
+
+
 def run_analysis():
     """运行照片分析（主入口）"""
     database.init_db()
 
+    # 初始化进度
+    pr.start_analysis()
+    pr.report_scanning()
+
     photos = scan_photos()
     if not photos:
         logger.info("没有新照片需要分析")
+        pr.report_done()
         return
 
     # 限制批次大小
@@ -421,6 +486,10 @@ def run_analysis():
         photos = photos[:config.BATCH_LIMIT]
 
     logger.info(f"开始分析 {len(photos)} 张照片，并发数: {config.CONCURRENCY}")
+
+    # 更新进度：现在知道总数了
+    pr.start_analysis(total=len(photos))
+    pr.report_analyzing()
 
     success_count = 0
     fail_count = 0
@@ -437,11 +506,58 @@ def run_analysis():
                     success_count += 1
                     logger.info(f"✓ [{success_count}/{len(photos)}] {os.path.basename(filepath)} "
                                f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
-                               f"[{record['type']}] {record['side_caption'] or ''}")
+                               f"[{record['type']}]")
+                    pr.report_tick(filepath, success=True)
                 else:
                     fail_count += 1
+                    pr.report_tick(filepath, success=False)
             except Exception as e:
                 fail_count += 1
                 logger.error(f"✗ {filepath}: {e}")
+                pr.report_tick(filepath, success=False)
 
     logger.info(f"分析完成: 成功 {success_count}, 失败 {fail_count}")
+    pr.report_done()
+
+
+def analyze_selected_photos(paths: list[str]):
+    """仅对指定路径的照片运行 VLM 评分（人工审核勾选后调用）"""
+    database.init_db()
+
+    total = len(paths)
+    if total == 0:
+        logger.info("没有选中的照片")
+        return
+
+    pr.start_analysis(total=total)
+    pr.report_analyzing()
+
+    logger.info(f"开始分析 {total} 张选中照片，并发数: {config.CONCURRENCY}")
+
+    success_count = 0
+    fail_count = 0
+
+    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
+        futures = {executor.submit(analyze_one_photo, p): p for p in paths}
+
+        for future in as_completed(futures):
+            filepath = futures[future]
+            try:
+                record = future.result()
+                if record:
+                    database.insert_photo(record)
+                    success_count += 1
+                    logger.info(f"✓ [{success_count}/{total}] {os.path.basename(filepath)} "
+                               f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
+                               f"[{record['type']}]")
+                    pr.report_tick(filepath, success=True)
+                else:
+                    fail_count += 1
+                    pr.report_tick(filepath, success=False)
+            except Exception as e:
+                fail_count += 1
+                logger.error(f"✗ {filepath}: {e}")
+                pr.report_tick(filepath, success=False)
+
+    logger.info(f"选中照片分析完成: 成功 {success_count}, 失败 {fail_count}")
+    pr.report_done()

@@ -1,0 +1,32 @@
+# Git / 编辑器
+.git
+.gitignore
+.vscode
+.idea
+
+# 环境变量与本地配置
+.env
+.env.example
+
+# Python 缓存与虚拟环境
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv
+.venv
+
+# 本地数据与日志
+data/
+.local-data/
+*.db
+*.log
+
+# 前端依赖与构建产物
+frontend/node_modules/
+frontend/dist/
+frontend/static/js/
+
+# 文档
+README.md
