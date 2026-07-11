@@ -1,8 +1,8 @@
 """Photo serving and photo-related API routes."""
 
+import asyncio
 import logging
 import os
-import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from backend import config, database
-from backend.analyzer import run_analysis
+from backend.analyzer import run_analysis_async, analyze_selected_photos
 from backend import progress as pr
 from backend.dependencies import get_db
 
@@ -76,18 +76,13 @@ def serve_photo(filepath: str):
 
 
 @router.post("/api/analyze")
-def api_analyze():
+async def api_analyze():
     """触发分析（后台运行）"""
-
-    def run():
-        try:
-            run_analysis()
-        except Exception as e:
-            pr.report_done()
-            logger.error(f"分析任务失败: {e}")
-
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
+    try:
+        asyncio.create_task(run_analysis_async())
+    except Exception as e:
+        logger.error(f"分析任务启动失败: {e}")
+        raise HTTPException(status_code=500, detail="分析任务启动失败")
     return {"status": "started", "message": "分析任务已启动"}
 
 
@@ -161,22 +156,18 @@ def api_review_photos(
 
 
 @router.post("/api/review/submit")
-def api_review_submit(payload: ReviewPathsPayload):
+async def api_review_submit(payload: ReviewPathsPayload):
     """提交选中照片进行 VLM 评分"""
     if not payload.paths:
         raise HTTPException(status_code=400, detail="没有选择照片")
 
     from backend.analyzer import analyze_selected_photos
 
-    def run():
-        try:
-            analyze_selected_photos(payload.paths)
-        except Exception as e:
-            logger.error(f"选中照片分析失败: {e}")
-            pr.report_done()
-
-    t = threading.Thread(target=run, daemon=True)
-    t.start()
+    try:
+        asyncio.create_task(analyze_selected_photos(payload.paths))
+    except Exception as e:
+        logger.error(f"选中照片分析启动失败: {e}")
+        raise HTTPException(status_code=500, detail="分析任务启动失败")
 
     return {
         "status": "started",
