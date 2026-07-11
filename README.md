@@ -120,6 +120,8 @@ ink-memories/
 | `CONCURRENCY` | 并发数 | 2 |
 | `BATCH_LIMIT` | 每次最多分析数 | 0 (不限) |
 | `TIMEOUT` | 单张超时（秒）| 120 |
+| `LOW_MEMORY_THRESHOLD_GB` | 低内存阈值（GB）| 3.0 |
+| `LOW_MEMORY_CONCURRENCY` | 低内存时并发数 | 1 |
 | `MEMORY_THRESHOLD` | 精选最低回忆分 | 70 |
 | `DAILY_PHOTO_QUANTITY` | 每日精选数量 | 5 |
 | `SIMILARITY_THRESHOLD` | 去重哈希距离阈值 | 5 |
@@ -182,15 +184,17 @@ PHOTO_DIR=./test_photos DB_PATH=./data/photos.db python cli.py server
 ### 完整调用链
 
 ```
-run_analysis()              ← POST /api/analyze 或 python cli.py analyze
-  ├─ scan_photos()          ← 扫描目录，增量检测
-  └─ ThreadPoolExecutor(N)  ← 并发分析（CONCURRENCY）
-       └─ analyze_one_photo(path)
-            ├─ encode_image(path)         ← 读取→压缩→Base64
-            ├─ extract_exif(path)         ← EXIF 元数据提取
-            ├─ call_vlm(base64)           ← VLM API 评分
-            ├─ compute_avg_hash(path)     ← 感知哈希 (aHash)
-            └─ deduplicate_similar_photos() ← 相似去重
+run_analysis_async()                       ← asyncio 异步入口
+  ├─ scan_photos()                         ← 扫描目录，增量检测
+  ├─ get_effective_concurrency()           ← 内存自适应并发数
+  └─ schedule_photo_analysis(paths)        ← asyncio 并发调度
+       └─ ThreadPoolExecutor(N) × asyncio  ← 异步 + 线程池
+            └─ analyze_one_photo(path)
+                 ├─ encode_image(path)         ← HEIC→JPEG→Base64
+                 ├─ extract_exif(path)         ← EXIF 元数据提取
+                 ├─ call_vlm(base64)           ← VLM API 评分
+                 ├─ compute_avg_hash(path)     ← 感知哈希 (aHash)
+                 └─ deduplicate_similar_photos() ← 相似去重
 ```
 
 ### 单张照片分析 (`analyze_one_photo`)

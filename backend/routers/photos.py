@@ -18,6 +18,20 @@ from backend.dependencies import get_db
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+def create_background_task(coro, task_name: str):
+    task = asyncio.create_task(coro)
+
+    def _handle_done(t: asyncio.Task):
+        if t.cancelled():
+            logger.warning(f"{task_name} 后台任务被取消")
+            return
+        exc = t.exception()
+        if exc:
+            logger.error(f"{task_name} 后台任务失败: {exc}", exc_info=exc)
+
+    task.add_done_callback(_handle_done)
+    return task
+
 
 class PhotoUpdatePayload(BaseModel):
     path: str
@@ -79,7 +93,7 @@ def serve_photo(filepath: str):
 async def api_analyze():
     """触发分析（后台运行）"""
     try:
-        asyncio.create_task(run_analysis_async())
+        create_background_task(run_analysis_async(), "全量分析")
     except Exception as e:
         logger.error(f"分析任务启动失败: {e}")
         raise HTTPException(status_code=500, detail="分析任务启动失败")
@@ -164,7 +178,7 @@ async def api_review_submit(payload: ReviewPathsPayload):
     from backend.analyzer import analyze_selected_photos
 
     try:
-        asyncio.create_task(analyze_selected_photos(payload.paths))
+        create_background_task(analyze_selected_photos(payload.paths), "选中照片分析")
     except Exception as e:
         logger.error(f"选中照片分析启动失败: {e}")
         raise HTTPException(status_code=500, detail="分析任务启动失败")

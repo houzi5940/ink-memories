@@ -66,7 +66,7 @@ ink-memories/
 ### 照片分析流程
 
 ```
-run_analysis()
+run_analysis_async()
   │
   ├─ 1. 初始化进度
   │    pr.start_analysis()       → phase="scanning", total=0
@@ -78,14 +78,17 @@ run_analysis()
   │    └─ 跳过已分析路径（增量）
   │    → 返回新照片列表 []
   │
-  ├─ 3. 更新进度
+  ├─ 3. get_effective_concurrency()
+  │    检测内存 → 自适应并发数
+  │
+  ├─ 4. 更新进度
   │    pr.start_analysis(total=N)  → phase="analyzing"
   │
-  └─ 4. ThreadPoolExecutor (CONCURRENCY)
+  └─ 5. schedule_photo_analysis()   ← asyncio + ThreadPoolExecutor
        for each photo:
-         submit(analyze_one_photo, path)
+         ensure_future(loop.run_in_executor(executor, analyze_one_photo, path))
 
-       as_completed:
+       asyncio.as_completed:
          ├─ analyze_one_photo()
          │    ├─ encode_image()     读取→压缩→base64
          │    ├─ extract_exif()     解析 EXIF→dict
@@ -96,7 +99,7 @@ run_analysis()
          ├─ insert_photo(record)   写入 SQLite
          └─ pr.report_tick()       更新进度
   │
-  └─ 5. pr.report_done()           → phase="done"
+  └─ 6. pr.report_done()           → phase="done"
 ```
 
 ### 人工审核流程
@@ -154,6 +157,9 @@ get_daily_summary()
 ## 线程模型
 
 - **主线程**: Uvicorn 处理 HTTP 请求
-- **后台线程**: 照片分析（POST /api/analyze 或 POST /api/review/submit 触发）
-- **并发分析**: ThreadPoolExecutor（可配置 CONCURRENCY）
+- **asyncio 事件循环**: 协调分析任务的异步调度（`schedule_photo_analysis`）
+- **后台任务**: 通过 `create_background_task()` 启动，异常自动捕获记录
+- **并发分析**: `ThreadPoolExecutor` + asyncio 混合模型，并发数由 `get_effective_concurrency()` 根据可用内存动态调整
+- **内存检测**: 启动分析前自动检测 cgroup 限制 / /proc/meminfo / sysconf，低内存环境自动降级并发数
 - **进度同步**: threading.Lock 保护 progress 状态
+- **数据库写锁**: threading.Lock 串行化 SQLite 写操作，避免并发冲突
