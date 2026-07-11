@@ -33,6 +33,8 @@ CHANNEL_FAILOVER_COOLDOWN_SEC = 300
 # ============================================================
 VLM_MAX_LONG_EDGE = 2560  # 发送给 VLM 的图片最大长边
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "2"))
+LOW_MEMORY_THRESHOLD_GB = float(os.environ.get("LOW_MEMORY_THRESHOLD_GB", "3.0"))
+LOW_MEMORY_CONCURRENCY = int(os.environ.get("LOW_MEMORY_CONCURRENCY", "1"))
 
 # ============================================================
 # 精选参数
