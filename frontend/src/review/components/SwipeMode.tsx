@@ -22,6 +22,7 @@ export function SwipeMode({
   onDone,
 }: SwipeModeProps) {
   const swipeDone = swipeIndex >= photos.length
+  const [lightboxPhoto, setLightboxPhoto] = React.useState<Photo | null>(null)
 
   // 键盘快捷键
   React.useEffect(() => {
@@ -33,6 +34,15 @@ export function SwipeMode({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [swipeDone, onSwipe])
+
+  // 键盘关闭 lightbox
+  React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setLightboxPhoto(null)
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   if (swipeDone) {
     return (
@@ -48,7 +58,7 @@ export function SwipeMode({
     <div className="space-y-3">
       {/* Progress dots */}
       <div className="flex justify-center gap-1.5 px-4">
-        {photos.slice(0, Math.min(photos.length, 30)).map((p, i) => (
+        {photos.slice(0, Math.min(photos.length, 30)).map((_, i) => (
           <div
             key={i}
             className={`h-1.5 rounded-full transition-all duration-200 ${
@@ -76,6 +86,7 @@ export function SwipeMode({
                 photo={photo}
                 isTop={offset === 0}
                 onSwipe={onSwipe}
+                onTap={() => setLightboxPhoto(photo)}
                 style={{
                   transform: `scale(${scale}) translateY(${offset * 8}px)`,
                   zIndex: 10 - offset,
@@ -87,7 +98,7 @@ export function SwipeMode({
           {/* Hint */}
           {swipeIndex === 0 && (
             <div className="absolute -bottom-1 left-0 right-0 text-center text-xs text-gray-400">
-              左滑跳过 · 右滑选中 · 键盘 ← →
+              点击放大 · 左滑跳过 · 右滑选中
             </div>
           )}
         </div>
@@ -104,6 +115,88 @@ export function SwipeMode({
           </button>
         </div>
       )}
+
+      {/* Lightbox */}
+      {lightboxPhoto && (
+        <Lightbox
+          photo={lightboxPhoto}
+          onClose={() => setLightboxPhoto(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Lightbox ──
+function Lightbox({
+  photo,
+  onClose,
+}: {
+  photo: Photo
+  onClose: () => void
+}) {
+  const imgUrl = `/photo/${encodeURI(photo.path.replace(/^\//, ''))}`
+  const [imgLoaded, setImgLoaded] = React.useState(false)
+  const [imgError, setImgError] = React.useState(false)
+
+  // Lock body scroll when open
+  React.useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center touch-none animate-fadeSlideIn"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full h-full flex items-center justify-center p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Close button */}
+        <button
+          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/40 text-white flex items-center justify-center text-2xl active:bg-black/60"
+          onClick={onClose}
+          aria-label="关闭"
+        >
+          ✕
+        </button>
+
+        {/* Photo info bar */}
+        <div className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-full bg-black/40 text-white text-xs">
+          {photo.date || ''}
+          {photo.type && <span className="ml-2 opacity-70">{photo.type}</span>}
+        </div>
+
+        {/* Image */}
+        {!imgLoaded && !imgError && (
+          <div className="text-white/50 text-2xl animate-pulse">加载中...</div>
+        )}
+        {imgError ? (
+          <div className="text-white/50 text-center">
+            <div className="text-5xl mb-3">😢</div>
+            <div className="text-sm">图片加载失败</div>
+          </div>
+        ) : (
+          <img
+            src={imgUrl}
+            alt=""
+            className={`max-w-full max-h-full object-contain rounded-lg transition-opacity duration-300 ${
+              imgLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+            style={{ maxHeight: 'calc(100vh - 80px)' }}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => { setImgError(true); setImgLoaded(true) }}
+            draggable={false}
+          />
+        )}
+
+        {/* Hint */}
+        <div className="absolute bottom-6 left-0 right-0 text-center text-xs text-white/40">
+          点击外部关闭
+        </div>
+      </div>
     </div>
   )
 }
@@ -113,16 +206,19 @@ function SwipeCard({
   photo,
   isTop,
   onSwipe,
+  onTap,
   style,
 }: {
   photo: Photo
   isTop: boolean
   onSwipe: (action: 'select' | 'skip') => void
+  onTap: () => void
   style: React.CSSProperties
 }) {
   const ref = React.useRef<HTMLDivElement>(null)
   const labelRef = React.useRef<HTMLDivElement>(null)
   const drag = React.useRef({ startX: 0, startY: 0, dx: 0, dy: 0, dragging: false })
+  const wasDrag = React.useRef(false)
 
   const thumbUrl = `/photo/${encodeURI(photo.path.replace(/^\//, ''))}`
   const [imgLoaded, setImgLoaded] = React.useState(false)
@@ -131,6 +227,7 @@ function SwipeCard({
     if (!isTop) return
     const t = e.touches[0]
     drag.current = { startX: t.clientX, startY: t.clientY, dx: 0, dy: 0, dragging: true }
+    wasDrag.current = false
     ref.current?.classList.add('!transition-none')
   }
 
@@ -143,6 +240,10 @@ function SwipeCard({
     drag.current.dy = dy
     const el = ref.current
     if (!el) return
+
+    // Movement exceeds tap threshold
+    if (Math.abs(dx) > 10) wasDrag.current = true
+
     const rot = Math.min(20, Math.abs(dx) / 8) * Math.sign(dx)
     el.style.transform = `translateX(${dx}px) rotate(${rot}deg)`
     el.style.opacity = String(Math.max(0.3, 1 - Math.abs(dx) / 600))
@@ -182,6 +283,17 @@ function SwipeCard({
           ;(l as HTMLElement).style.opacity = '0'
         })
       }
+      // Tap detection: not dragged, not a swipe → trigger tap
+      if (!wasDrag.current && isTop) {
+        onTap()
+      }
+    }
+  }
+
+  // Mouse click fallback for desktop
+  const handleClick = (e: React.MouseEvent) => {
+    if (!wasDrag.current && isTop) {
+      onTap()
     }
   }
 
@@ -193,6 +305,7 @@ function SwipeCard({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onClick={handleClick}
     >
       <div ref={labelRef} className="relative">
         <div className="w-full aspect-[4/3] relative bg-gray-100">
@@ -209,6 +322,7 @@ function SwipeCard({
             }`}
             onLoad={() => setImgLoaded(true)}
             onError={() => setImgLoaded(true)}
+            draggable={false}
           />
           {/* Swipe labels */}
           <div
