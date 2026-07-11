@@ -31,6 +31,67 @@ from backend import config, database
 from backend import progress as pr
 
 
+def _read_cgroup_memory_limit_mb() -> int | None:
+    for path in (
+        "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+        "/sys/fs/cgroup/memory.max",
+    ):
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = f.read().strip()
+            if raw == "max":
+                return None
+            limit = int(raw)
+            if limit <= 0 or limit > 10**13:
+                return None
+            return int(limit / 1024 / 1024)
+        except Exception:
+            continue
+    return None
+
+
+def _read_proc_available_memory_mb() -> int | None:
+    if not os.path.exists("/proc/meminfo"):
+        return None
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    parts = line.split()
+                    return int(parts[1]) // 1024
+    except Exception:
+        return None
+    return None
+
+
+def get_available_memory_mb() -> int | None:
+    mem_mb = _read_cgroup_memory_limit_mb()
+    if mem_mb is not None:
+        return mem_mb
+    mem_mb = _read_proc_available_memory_mb()
+    if mem_mb is not None:
+        return mem_mb
+    try:
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        pages = os.sysconf("SC_AVPHYS_PAGES")
+        return int(page_size * pages / 1024 / 1024)
+    except Exception:
+        return None
+
+
+def get_effective_concurrency() -> int:
+    concurrency = max(1, config.CONCURRENCY)
+    cpus = os.cpu_count() or 1
+    if concurrency > cpus:
+        concurrency = cpus
+    available_mb = get_available_memory_mb()
+    if available_mb is not None and available_mb <= config.LOW_MEMORY_THRESHOLD_GB * 1024:
+        concurrency = min(concurrency, config.LOW_MEMORY_CONCURRENCY)
+    return max(1, concurrency)
+
+
 def _insert_pending_photo(path: str):
     database.insert_photo({
         "path": path,
@@ -61,14 +122,18 @@ async def schedule_photo_analysis(paths: list[str]):
         for path in paths
     ])
 
-    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
-        pending = {
-            asyncio.create_task(asyncio.to_thread(analyze_one_photo, path)): path
+    loop = asyncio.get_running_loop()
+    effective_concurrency = get_effective_concurrency()
+    logger.info(f"开始调度 {len(paths)} 张照片分析，并发数: {effective_concurrency}")
+    with ThreadPoolExecutor(max_workers=effective_concurrency) as executor:
+        task_to_path = {
+            asyncio.ensure_future(loop.run_in_executor(executor, analyze_one_photo, path)): path
             for path in paths
         }
+        tasks = list(task_to_path.keys())
 
-        for task in asyncio.as_completed(pending):
-            path = pending[task]
+        for task in asyncio.as_completed(tasks):
+            path = task_to_path[task]
             try:
                 record = await task
                 if record:
@@ -78,7 +143,7 @@ async def schedule_photo_analysis(paths: list[str]):
                     await asyncio.to_thread(_mark_analysis_failed, path)
                     pr.report_tick(path, success=False)
             except Exception as e:
-                logger.error(f"分析任务异常 {path}: {e}")
+                logger.error(f"分析任务异常 {path}: {e}", exc_info=e)
                 await asyncio.to_thread(_mark_analysis_failed, path)
                 pr.report_tick(path, success=False)
 
@@ -89,24 +154,27 @@ async def run_analysis_async():
     pr.start_analysis()
     pr.report_scanning()
 
-    photos = await asyncio.to_thread(scan_photos)
-    if not photos:
-        logger.info("没有新照片需要分析")
+    try:
+        photos = await asyncio.to_thread(scan_photos)
+        if not photos:
+            logger.info("没有新照片需要分析")
+            return
+
+        if config.BATCH_LIMIT:
+            photos = photos[:config.BATCH_LIMIT]
+
+        logger.info(f"开始分析 {len(photos)} 张照片")
+
+        pr.start_analysis(total=len(photos))
+        pr.report_analyzing()
+
+        await schedule_photo_analysis(photos)
+
+        logger.info("分析完成")
+    except Exception as e:
+        logger.error(f"全量分析任务异常: {e}", exc_info=e)
+    finally:
         pr.report_done()
-        return
-
-    if config.BATCH_LIMIT:
-        photos = photos[:config.BATCH_LIMIT]
-
-    logger.info(f"开始分析 {len(photos)} 张照片，并发数: {config.CONCURRENCY}")
-
-    pr.start_analysis(total=len(photos))
-    pr.report_analyzing()
-
-    await schedule_photo_analysis(photos)
-
-    logger.info("分析完成")
-    pr.report_done()
 
 
 def run_analysis():
@@ -169,37 +237,42 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 
 def encode_image(image_path: str) -> tuple[str, int, int]:
     """读取图片，压缩到最大长边，返回 base64 和尺寸"""
-    try:
-        img = Image.open(image_path)
-    except Exception as e:
-        logger.warning(f"无法打开图片 {image_path}: {e}")
+    ext = Path(image_path).suffix.lower()
+    if ext in {".heic", ".heif"} and pillow_heif is None:
+        logger.warning(f"HEIC/HEIF 文件无法读取，pillow_heif 未安装: {image_path}")
         return None, 0, 0
 
-    # 处理 EXIF 旋转
     try:
-        from PIL import ImageOps
-        img = ImageOps.exif_transpose(img)
-    except Exception:
-        pass
+        with Image.open(image_path) as img:
+            try:
+                from PIL import ImageOps
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
 
-    width, height = img.size
+            width, height = img.size
 
-    # 压缩到最大长边
-    max_edge = config.VLM_MAX_LONG_EDGE
-    if max(width, height) > max_edge:
-        ratio = max_edge / max(width, height)
-        new_w = int(width * ratio)
-        new_h = int(height * ratio)
-        img = img.resize((new_w, new_h), Image.LANCZOS)
+            # 压缩到最大长边
+            max_edge = config.VLM_MAX_LONG_EDGE
+            if max(width, height) > max_edge:
+                ratio = max_edge / max(width, height)
+                new_w = int(width * ratio)
+                new_h = int(height * ratio)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
 
-    # 转 RGB
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
+            # 转 RGB
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            elif img.mode == "L":
+                img = img.convert("RGB")
 
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    return b64, width, height
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=85)
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            return b64, width, height
+    except Exception as e:
+        logger.warning(f"无法打开或处理图片 {image_path}: {e}")
+        return None, 0, 0
 
 
 def extract_exif(image_path: str) -> dict:
@@ -555,9 +628,11 @@ async def analyze_selected_photos(paths: list[str]):
     pr.start_analysis(total=total)
     pr.report_analyzing()
 
-    logger.info(f"开始分析 {total} 张选中照片，并发数: {config.CONCURRENCY}")
-
-    await schedule_photo_analysis(paths)
-
-    logger.info(f"选中照片分析完成: 成功 {total}（进度详见 /api/analyze/progress）")
-    pr.report_done()
+    try:
+        logger.info(f"开始分析 {total} 张选中照片")
+        await schedule_photo_analysis(paths)
+        logger.info(f"选中照片分析完成: 成功 {total}（进度详见 /api/analyze/progress）")
+    except Exception as e:
+        logger.error(f"选中照片分析任务异常: {e}", exc_info=e)
+    finally:
+        pr.report_done()
