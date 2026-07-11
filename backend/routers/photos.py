@@ -6,7 +6,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from backend import config, database
@@ -67,40 +67,6 @@ def serve_photo(filepath: str):
 
     if not full_path:
         raise HTTPException(status_code=404, detail="Not Found")
-
-    # 检查是否为 HEIC/HEIF，自动转码 JPEG
-    ext = PathLib(full_path).suffix.lower()
-    if ext in (".heic", ".heif"):
-        try:
-            # 使用 pillow_heif 显式 API（比 Image.open 注册机制更可靠）
-            from pillow_heif import open_heif
-            from PIL import Image as PILImage
-            from PIL import ImageOps
-
-            heif_file = open_heif(full_path)
-            img = PILImage.frombytes(
-                heif_file.mode, heif_file.size, heif_file.data
-            )
-            try:
-                img = ImageOps.exif_transpose(img)
-            except Exception:
-                pass
-            if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
-            buf = BytesIO()
-            img.save(buf, format="JPEG", quality=92)
-            buf.seek(0)
-            return Response(
-                content=buf.read(),
-                media_type="image/jpeg",
-                headers={"Cache-Control": "max-age=3600"},
-            )
-        except ImportError:
-            logger.error(
-                "HEIC 转码失败: pillow_heif 未安装。请重建 Docker。"
-            )
-        except Exception as e:
-            logger.error(f"HEIC 转码失败 {full_path}: {e}")
 
     try:
         return FileResponse(full_path, headers={"Cache-Control": "max-age=3600"})
