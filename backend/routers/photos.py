@@ -32,27 +32,35 @@ class PhotoUpdatePayload(BaseModel):
 
 @router.get("/photo/{filepath:path}")
 def serve_photo(filepath: str):
-    """提供照片文件（缩略图）
+    """提供照片文件
 
     兼容三种传入形式：
     - 相对 PHOTO_DIR 的路径（如 sample2.jpg，来自 relphoto 过滤器）
     - 绝对路径（如 /Users/.../sample2.jpg）
     - 被去掉前导斜杠的绝对路径（如 Users/.../sample2.jpg，来自编辑弹窗预览）
-    """
-    photo_dir = os.path.realpath(config.PHOTO_DIR)
 
-    candidates = []
-    if filepath.startswith("/"):
-        candidates.append(filepath)
-    else:
-        candidates.append(os.path.join(config.PHOTO_DIR, filepath))
-        candidates.append("/" + filepath)
+    HEIC/HEIF 文件自动转码为 JPEG（浏览器不原生支持 HEIC）。
+    """
+    from io import BytesIO
+    from pathlib import Path as PathLib
+
+    if not filepath:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    photo_dir = os.path.realpath(config.PHOTO_DIR)
+    filepath_no_slash = filepath.lstrip("/")
+
+    candidates = [
+        filepath,
+        os.path.join(config.PHOTO_DIR, filepath_no_slash),
+        "/" + filepath_no_slash,
+    ]
 
     full_path = None
     for candidate in candidates:
         resolved = os.path.realpath(candidate)
-        # 限制在 PHOTO_DIR 内，防止路径穿越
-        if resolved == photo_dir or resolved.startswith(photo_dir + os.sep):
+        # 限制在 PHOTO_DIR 内，防止路径穿越。使用 commonpath 可正确处理 PHOTO_DIR 为 / 的情况。
+        if os.path.commonpath([photo_dir, resolved]) == photo_dir:
             if os.path.exists(resolved):
                 full_path = resolved
                 break
