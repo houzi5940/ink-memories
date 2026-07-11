@@ -50,36 +50,100 @@ pr.start_analysis(total=len(photos))   # 现在知道总数了
 pr.report_analyzing()                  # phase="analyzing"
 ```
 
-## 步骤四：并发分析
+## 步骤四：异步并发调度
 
 ```python
-with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
-    futures = {executor.submit(analyze_one_photo, p): p for p in photos}
+async def schedule_photo_analysis(paths: list[str]):
+    # 先并行写入"待分析"状态
+    await asyncio.gather(*[
+        asyncio.to_thread(_insert_pending_photo, path)
+        for path in paths
+    ])
 
-    for future in as_completed(futures):
-        # 每完成一张立即处理，不等待所有完成
+    loop = asyncio.get_running_loop()
+    effective_concurrency = get_effective_concurrency()  # 内存自适应
+    logger.info(f"开始调度 {len(paths)} 张照片分析，并发数: {effective_concurrency}")
+
+    with ThreadPoolExecutor(max_workers=effective_concurrency) as executor:
+        task_to_path = {
+            asyncio.ensure_future(loop.run_in_executor(executor, analyze_one_photo, path)): path
+            for path in paths
+        }
+        tasks = list(task_to_path.keys())
+
+        for task in asyncio.as_completed(tasks):
+            path = task_to_path[task]
+            record = await task
+            if record:
+                await asyncio.to_thread(database.insert_photo, record)
+                pr.report_tick(path, success=True)
+            else:
+                await asyncio.to_thread(_mark_analysis_failed, path)
+                pr.report_tick(path, success=False)
 ```
 
-`ThreadPoolExecutor` + `as_completed` 确保：
-- 并发 N 张同时调用 VLM API（N = CONCURRENCY，默认 2）
-- 先完成的先入库并更新进度条
-- 不会因为某张照片超时阻塞其他照片
+`schedule_photo_analysis` 使用 asyncio + ThreadPoolExecutor 混合模型：
+- **asyncio** 管理并发调度和 IO（数据库写入）
+- **ThreadPoolExecutor** 执行 CPU 密集型工作（图片编码、哈希计算）
+- `as_completed` 确保先完成的先入库，不会因为某张照片超时阻塞其他照片
+- 后台任务异常通过 `create_background_task()` 统一捕获记录
+
+### 内存自适应并发
+
+系统启动分析前会自动检测可用内存并调整并发数：
+
+```python
+def get_effective_concurrency() -> int:
+    concurrency = max(1, config.CONCURRENCY)
+    cpus = os.cpu_count() or 1
+    if concurrency > cpus:
+        concurrency = cpus
+    available_mb = get_available_memory_mb()
+    if available_mb is not None and available_mb <= config.LOW_MEMORY_THRESHOLD_GB * 1024:
+        concurrency = min(concurrency, config.LOW_MEMORY_CONCURRENCY)
+    return max(1, concurrency)
+```
+
+检测优先级：
+1. **cgroup 内存限制** — Docker 容器分配的内存上限
+2. **/proc/meminfo MemAvailable** — 系统当前可用内存
+3. **os.sysconf** — POSIX 系统调用回退
+
+配置项（`.env` 或环境变量）：
+| 配置 | 默认 | 说明 |
+|------|------|------|
+| `CONCURRENCY` | 2 | 正常情况下的最大并发数 |
+| `LOW_MEMORY_THRESHOLD_GB` | 4.0 | 低于此值触发降级 |
+| `LOW_MEMORY_CONCURRENCY` | 1 | 低内存时的并发数上限 |
 
 ### 每个子任务：`analyze_one_photo(path)`
 
 #### ① 编码图片 — `encode_image(path)`
 
 ```python
-img = Image.open(path)
-img = ImageOps.exif_transpose(img)    # 校正旋转
-if max(w, h) > VLM_MAX_LONG_EDGE:     # 默认 2560px
-    resize(保持比例)
-if img.mode in ("RGBA", "P"):
-    img = img.convert("RGB")
-img.save(buf, format="JPEG", quality=85)
-b64 = base64.b64encode(buf.getvalue())
-return b64, width, height
+ext = Path(image_path).suffix.lower()
+if ext in {".heic", ".heif"} and pillow_heif is None:
+    return None, 0, 0  # HEIC/HEIF 需要 pillow-heif
+
+with Image.open(image_path) as img:
+    img = ImageOps.exif_transpose(img)    # 校正旋转
+    width, height = img.size
+
+    if max(width, height) > VLM_MAX_LONG_EDGE:     # 默认 2560px
+        img = img.resize(保持比例, Image.LANCZOS)
+
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
+    elif img.mode == "L":
+        img = img.convert("RGB")
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    b64 = base64.b64encode(buf.getvalue())
+    return b64, width, height
 ```
+
+> **改进点：** 使用 `with` 上下文管理器确保图片资源正确释放；HEIC/HEIF 文件在开头做早期检查，避免无意义的错误日志；灰度（L 模式）图片也转为 RGB，确保 JPEG 编码兼容。
 
 **为什么压缩到 2560px？**
 - VLM API 通常有图片大小限制（几 MB～20MB）
@@ -269,6 +333,8 @@ pr.report_done()     # running=false, phase="done"
 | 配置 | 默认 | 影响环节 |
 |------|------|----------|
 | `CONCURRENCY` | 2 | ThreadPoolExecutor 并发数 |
+| `LOW_MEMORY_THRESHOLD_GB` | 4.0 | 低内存检测阈值（低于此值自动降级）|
+| `LOW_MEMORY_CONCURRENCY` | 1 | 低内存时的并发数上限 |
 | `BATCH_LIMIT` | 0 (不限) | 单次最大分析数 |
 | `TIMEOUT` | 120s | VLM API HTTP 超时 |
 | `VLM_MAX_LONG_EDGE` | 2560px | encode_image 压缩尺寸 |
@@ -277,31 +343,29 @@ pr.report_done()     # running=false, phase="done"
 
 ## 人工审核评分流：`analyze_selected_photos(paths)`
 
-此函数由 `POST /api/review/submit` 触发，逻辑与 `run_analysis()` 完全一致，但只处理用户圈选的照片，不扫描全目录。
+此函数由 `POST /api/review/submit` 触发，逻辑与 `run_analysis_async()` 一致，共享 `schedule_photo_analysis()` 异步调度引擎。
 
 ```python
-def analyze_selected_photos(paths: list[str]):
+async def analyze_selected_photos(paths: list[str]):
     database.init_db()
     total = len(paths)
 
     pr.start_analysis(total=total)
     pr.report_analyzing()
 
-    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
-        futures = {executor.submit(analyze_one_photo, p): p for p in paths}
-
-        for future in as_completed(futures):
-            record = future.result()
-            if record:
-                database.insert_photo(record)    # 写入 SQLite
-            pr.report_tick(filepath, success=bool(record))
-
-    pr.report_done()
+    try:
+        await schedule_photo_analysis(paths)
+    except Exception as e:
+        logger.error(f"选中照片分析任务异常: {e}", exc_info=e)
+    finally:
+        pr.report_done()
 ```
 
-### 与 `run_analysis()` 的区别
+> 后台任务通过 `create_background_task()` 启动，自动捕获未被上层处理的异常并记录日志。
 
-| 环节 | `run_analysis()` | `analyze_selected_photos()` |
+### 与 `run_analysis_async()` 的区别
+
+| 环节 | `run_analysis_async()` | `analyze_selected_photos()` |
 |------|-----------------|----------------------------|
 | 照片来源 | `scan_photos()` 扫描全目录 | 前端传入的 `paths` 列表 |
 | 增量跳过 | 跳过已分析路径 | 不跳过（用户主动选的） |
