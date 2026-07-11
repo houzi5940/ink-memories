@@ -5,14 +5,14 @@ import os
 # ============================================================
 # 照片源
 # ============================================================
-PHOTO_DIR = "/photos"  # Docker 容器内挂载路径
+PHOTO_DIR = os.environ.get("PHOTO_DIR", "/photos")  # Docker 容器内挂载路径
 SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".heic", ".heif"}
 EXCLUDE_DIRS = ["@eaDir", "#recycle", "@__thumb", "@SynoPhotoParcel"]
 
 # ============================================================
 # 数据库
 # ============================================================
-DB_PATH = "/data/photos.db"  # Docker 容器内持久化路径
+DB_PATH = os.environ.get("DB_PATH", "/data/photos.db")  # Docker 容器内持久化路径
 
 # ============================================================
 # VLM API 配置（支持多通道轮询 + 故障转移）
@@ -41,7 +41,16 @@ MEMORY_THRESHOLD = 70.0  # 最低回忆分
 DAILY_PHOTO_QUANTITY = 5  # 每日精选数量
 
 # ============================================================
+# 相似照片去重
+# ============================================================
+SIMILARITY_THRESHOLD = int(os.environ.get("SIMILARITY_THRESHOLD", "5"))  # 平均哈希海明距离阈值（0-64，越小越严格）
+SIMILARITY_PENALTY_SCORE = float(os.environ.get("SIMILARITY_PENALTY_SCORE", "10.0"))  # 被降分照片的回忆分
+
+# ============================================================
 # WebUI
 # ============================================================
+# 保留旧命名以兼容现有脚本/Docker，同时提供 FastAPI 侧常用别名
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = int(os.environ.get("WEB_PORT", "8765"))
+WEB_HOST = FLASK_HOST
+WEB_PORT = FLASK_PORT

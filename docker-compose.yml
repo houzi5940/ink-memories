@@ -9,8 +9,8 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      # 照片目录（修改为你的实际路径）
-      - /path/to/your/photos:/photos:ro
+      # 照片目录
+      - /volume1/homes/871669332/Photos:/photos:ro
       # 数据持久化
       - ./data:/data
     environment:

@@ -1,0 +1,230 @@
+"""Photo serving and photo-related API routes."""
+
+import logging
+import os
+import threading
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
+
+from backend import config, database
+from backend.analyzer import run_analysis
+from backend import progress as pr
+from backend.dependencies import get_db
+
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+class PhotoUpdatePayload(BaseModel):
+    path: str
+    memory_score: Optional[float] = None
+    beauty_score: Optional[float] = None
+    type: Optional[str] = None
+    side_caption: Optional[str] = None
+    caption: Optional[str] = None
+    reason: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+
+@router.get("/photo/{filepath:path}")
+def serve_photo(filepath: str):
+    """提供照片文件
+
+    兼容三种传入形式：
+    - 相对 PHOTO_DIR 的路径（如 sample2.jpg，来自 relphoto 过滤器）
+    - 绝对路径（如 /Users/.../sample2.jpg）
+    - 被去掉前导斜杠的绝对路径（如 Users/.../sample2.jpg，来自编辑弹窗预览）
+
+    HEIC/HEIF 文件自动转码为 JPEG（浏览器不原生支持 HEIC）。
+    """
+    from io import BytesIO
+    from pathlib import Path as PathLib
+
+    if not filepath:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    photo_dir = os.path.realpath(config.PHOTO_DIR)
+    filepath_no_slash = filepath.lstrip("/")
+
+    candidates = [
+        filepath,
+        os.path.join(config.PHOTO_DIR, filepath_no_slash),
+        "/" + filepath_no_slash,
+    ]
+
+    full_path = None
+    for candidate in candidates:
+        resolved = os.path.realpath(candidate)
+        # 限制在 PHOTO_DIR 内，防止路径穿越。使用 commonpath 可正确处理 PHOTO_DIR 为 / 的情况。
+        if os.path.commonpath([photo_dir, resolved]) == photo_dir:
+            if os.path.exists(resolved):
+                full_path = resolved
+                break
+
+    if not full_path:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    # 检查是否为 HEIC/HEIF，自动转码 JPEG
+    ext = PathLib(full_path).suffix.lower()
+    if ext in (".heic", ".heif"):
+        try:
+            # 使用 pillow_heif 显式 API（比 Image.open 注册机制更可靠）
+            from pillow_heif import open_heif
+            from PIL import Image as PILImage
+            from PIL import ImageOps
+
+            heif_file = open_heif(full_path)
+            img = PILImage.frombytes(
+                heif_file.mode, heif_file.size, heif_file.data
+            )
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=92)
+            buf.seek(0)
+            return Response(
+                content=buf.read(),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "max-age=3600"},
+            )
+        except ImportError:
+            logger.error(
+                "HEIC 转码失败: pillow_heif 未安装。请重建 Docker。"
+            )
+        except Exception as e:
+            logger.error(f"HEIC 转码失败 {full_path}: {e}")
+
+    try:
+        return FileResponse(full_path, headers={"Cache-Control": "max-age=3600"})
+    except Exception as e:
+        logger.error(f"提供照片失败 {filepath}: {e}")
+        raise HTTPException(status_code=500, detail="Error")
+
+
+@router.post("/api/analyze")
+def api_analyze():
+    """触发分析（后台运行）"""
+
+    def run():
+        try:
+            run_analysis()
+        except Exception as e:
+            pr.report_done()
+            logger.error(f"分析任务失败: {e}")
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return {"status": "started", "message": "分析任务已启动"}
+
+
+@router.get("/api/analyze/progress")
+def api_analyze_progress():
+    """获取分析进度"""
+    return pr.get_progress()
+
+
+@router.get("/api/photo/detail")
+def api_photo_detail(path: str = Query(...), db=Depends(get_db)):
+    """获取单张照片详情"""
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path")
+    photo = db.get_photo_by_path(path)
+    if not photo:
+        raise HTTPException(status_code=404, detail="未找到")
+    return photo
+
+
+@router.post("/api/photo/update")
+def api_photo_update(payload: PhotoUpdatePayload, db=Depends(get_db)):
+    """手动更新照片的评分、标签、旁白"""
+    data = payload.model_dump(exclude_unset=True)
+    path = data.pop("path", None)
+    if not path:
+        raise HTTPException(status_code=400, detail="缺少 path")
+
+    updates: Dict[str, Any] = {}
+    for key, val in data.items():
+        if val is None:
+            continue
+        if key in ("memory_score", "beauty_score"):
+            try:
+                val = float(val)
+                val = max(0, min(100, val))
+            except (ValueError, TypeError):
+                continue
+        elif key == "tags":
+            if isinstance(val, str):
+                val = [t.strip() for t in val.replace("，", ",").split(",") if t.strip()]
+            if not isinstance(val, list):
+                continue
+        updates[key] = val
+
+    if updates:
+        db.update_photo(path, updates)
+        return {"status": "ok", "updated": updates}
+    raise HTTPException(status_code=400, detail="没有可更新的字段")
+
+
+# ============================================================
+# 人工审核 API
+# ============================================================
+
+class ReviewPathsPayload(BaseModel):
+    paths: list[str]
+
+
+@router.get("/api/review/photos")
+def api_review_photos(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+):
+    """获取未评分的照片列表（按文件修改时间排序，最新的在前）"""
+    from backend.database import scan_unanalyzed_photos, get_unanalyzed_count
+
+    photos = scan_unanalyzed_photos(limit=limit, offset=offset)
+    total = get_unanalyzed_count()
+    return {"photos": photos, "total": total}
+
+
+@router.post("/api/review/submit")
+def api_review_submit(payload: ReviewPathsPayload):
+    """提交选中照片进行 VLM 评分"""
+    if not payload.paths:
+        raise HTTPException(status_code=400, detail="没有选择照片")
+
+    from backend.analyzer import analyze_selected_photos
+
+    def run():
+        try:
+            analyze_selected_photos(payload.paths)
+        except Exception as e:
+            logger.error(f"选中照片分析失败: {e}")
+            pr.report_done()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
+    return {
+        "status": "started",
+        "message": f"已提交 {len(payload.paths)} 张照片进行分析",
+    }
+
+
+@router.post("/api/review/skip")
+def api_review_skip(payload: ReviewPathsPayload):
+    """跳过未勾选的照片（标记为已处理）"""
+    if not payload.paths:
+        return {"status": "ok", "skipped": 0}
+
+    from backend.database import batch_skip_photos
+
+    batch_skip_photos(payload.paths)
+    return {"status": "ok", "skipped": len(payload.paths)}
