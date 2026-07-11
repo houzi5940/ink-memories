@@ -74,6 +74,12 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 def encode_image(image_path: str) -> tuple[str, int, int]:
     """读取图片，压缩到最大长边，返回 base64 和尺寸"""
     try:
+        # 注册 HEIC/HEIF 解码支持（首次导入时自动注册到 Pillow）
+        import pillow_heif  # noqa: F401
+    except ImportError:
+        pass
+
+    try:
         img = Image.open(image_path)
     except Exception as e:
         logger.warning(f"无法打开图片 {image_path}: {e}")
