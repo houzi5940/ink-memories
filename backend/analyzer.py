@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -28,6 +29,91 @@ except Exception as e:
 
 from backend import config, database
 from backend import progress as pr
+
+
+def _insert_pending_photo(path: str):
+    database.insert_photo({
+        "path": path,
+        "type": "待分析",
+        "memory_score": None,
+        "beauty_score": None,
+        "reason": "分析中",
+        "raw_json": "{}",
+        "perceptual_hash": None,
+    })
+
+
+def _mark_analysis_failed(path: str):
+    database.update_photo(path, {
+        "type": "分析失败",
+        "memory_score": 0.0,
+        "beauty_score": 0.0,
+        "reason": "VLM 分析失败",
+    })
+
+
+async def schedule_photo_analysis(paths: list[str]):
+    if not paths:
+        return
+
+    await asyncio.gather(*[
+        asyncio.to_thread(_insert_pending_photo, path)
+        for path in paths
+    ])
+
+    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
+        pending = {
+            asyncio.create_task(asyncio.to_thread(analyze_one_photo, path)): path
+            for path in paths
+        }
+
+        for task in asyncio.as_completed(pending):
+            path = pending[task]
+            try:
+                record = await task
+                if record:
+                    await asyncio.to_thread(database.insert_photo, record)
+                    pr.report_tick(path, success=True)
+                else:
+                    await asyncio.to_thread(_mark_analysis_failed, path)
+                    pr.report_tick(path, success=False)
+            except Exception as e:
+                logger.error(f"分析任务异常 {path}: {e}")
+                await asyncio.to_thread(_mark_analysis_failed, path)
+                pr.report_tick(path, success=False)
+
+
+async def run_analysis_async():
+    database.init_db()
+
+    pr.start_analysis()
+    pr.report_scanning()
+
+    photos = await asyncio.to_thread(scan_photos)
+    if not photos:
+        logger.info("没有新照片需要分析")
+        pr.report_done()
+        return
+
+    if config.BATCH_LIMIT:
+        photos = photos[:config.BATCH_LIMIT]
+
+    logger.info(f"开始分析 {len(photos)} 张照片，并发数: {config.CONCURRENCY}")
+
+    pr.start_analysis(total=len(photos))
+    pr.report_analyzing()
+
+    await schedule_photo_analysis(photos)
+
+    logger.info("分析完成")
+    pr.report_done()
+
+
+def run_analysis():
+    if asyncio.get_event_loop().is_running():
+        return asyncio.create_task(run_analysis_async())
+    return asyncio.run(run_analysis_async())
+
 
 # ============================================================
 # VLM 提示词（基于 InkTime 优化）
@@ -457,60 +543,7 @@ def backfill_perceptual_hashes():
     logger.info(f"回刷完成: 成功 {success}, 失败 {fail}")
 
 
-def run_analysis():
-    """运行照片分析（主入口）"""
-    database.init_db()
-
-    # 初始化进度
-    pr.start_analysis()
-    pr.report_scanning()
-
-    photos = scan_photos()
-    if not photos:
-        logger.info("没有新照片需要分析")
-        pr.report_done()
-        return
-
-    # 限制批次大小
-    if config.BATCH_LIMIT:
-        photos = photos[:config.BATCH_LIMIT]
-
-    logger.info(f"开始分析 {len(photos)} 张照片，并发数: {config.CONCURRENCY}")
-
-    # 更新进度：现在知道总数了
-    pr.start_analysis(total=len(photos))
-    pr.report_analyzing()
-
-    success_count = 0
-    fail_count = 0
-
-    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
-        futures = {executor.submit(analyze_one_photo, p): p for p in photos}
-
-        for future in as_completed(futures):
-            filepath = futures[future]
-            try:
-                record = future.result()
-                if record:
-                    database.insert_photo(record)
-                    success_count += 1
-                    logger.info(f"✓ [{success_count}/{len(photos)}] {os.path.basename(filepath)} "
-                               f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
-                               f"[{record['type']}]")
-                    pr.report_tick(filepath, success=True)
-                else:
-                    fail_count += 1
-                    pr.report_tick(filepath, success=False)
-            except Exception as e:
-                fail_count += 1
-                logger.error(f"✗ {filepath}: {e}")
-                pr.report_tick(filepath, success=False)
-
-    logger.info(f"分析完成: 成功 {success_count}, 失败 {fail_count}")
-    pr.report_done()
-
-
-def analyze_selected_photos(paths: list[str]):
+async def analyze_selected_photos(paths: list[str]):
     """仅对指定路径的照片运行 VLM 评分（人工审核勾选后调用）"""
     database.init_db()
 
@@ -524,30 +557,7 @@ def analyze_selected_photos(paths: list[str]):
 
     logger.info(f"开始分析 {total} 张选中照片，并发数: {config.CONCURRENCY}")
 
-    success_count = 0
-    fail_count = 0
+    await schedule_photo_analysis(paths)
 
-    with ThreadPoolExecutor(max_workers=config.CONCURRENCY) as executor:
-        futures = {executor.submit(analyze_one_photo, p): p for p in paths}
-
-        for future in as_completed(futures):
-            filepath = futures[future]
-            try:
-                record = future.result()
-                if record:
-                    database.insert_photo(record)
-                    success_count += 1
-                    logger.info(f"✓ [{success_count}/{total}] {os.path.basename(filepath)} "
-                               f"→ 回忆:{record['memory_score']:.0f} 美观:{record['beauty_score']:.0f} "
-                               f"[{record['type']}]")
-                    pr.report_tick(filepath, success=True)
-                else:
-                    fail_count += 1
-                    pr.report_tick(filepath, success=False)
-            except Exception as e:
-                fail_count += 1
-                logger.error(f"✗ {filepath}: {e}")
-                pr.report_tick(filepath, success=False)
-
-    logger.info(f"选中照片分析完成: 成功 {success_count}, 失败 {fail_count}")
+    logger.info(f"选中照片分析完成: 成功 {total}（进度详见 /api/analyze/progress）")
     pr.report_done()
