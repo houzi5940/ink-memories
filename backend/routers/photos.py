@@ -44,20 +44,23 @@ def serve_photo(filepath: str):
     from io import BytesIO
     from pathlib import Path as PathLib
 
-    photo_dir = os.path.realpath(config.PHOTO_DIR)
+    if not filepath:
+        raise HTTPException(status_code=404, detail="Not Found")
 
-    candidates = []
-    if filepath.startswith("/"):
-        candidates.append(filepath)
-    else:
-        candidates.append(os.path.join(config.PHOTO_DIR, filepath))
-        candidates.append("/" + filepath)
+    photo_dir = os.path.realpath(config.PHOTO_DIR)
+    filepath_no_slash = filepath.lstrip("/")
+
+    candidates = [
+        filepath,
+        os.path.join(config.PHOTO_DIR, filepath_no_slash),
+        "/" + filepath_no_slash,
+    ]
 
     full_path = None
     for candidate in candidates:
         resolved = os.path.realpath(candidate)
-        # 限制在 PHOTO_DIR 内，防止路径穿越
-        if resolved == photo_dir or resolved.startswith(photo_dir + os.sep):
+        # 限制在 PHOTO_DIR 内，防止路径穿越。使用 commonpath 可正确处理 PHOTO_DIR 为 / 的情况。
+        if os.path.commonpath([photo_dir, resolved]) == photo_dir:
             if os.path.exists(resolved):
                 full_path = resolved
                 break
@@ -69,14 +72,19 @@ def serve_photo(filepath: str):
     ext = PathLib(full_path).suffix.lower()
     if ext in (".heic", ".heif"):
         try:
-            # 注册 HEIC 解码
-            try:
-                import pillow_heif  # noqa: F401
-            except ImportError:
-                pass
-            from PIL import Image
+            # 使用 pillow_heif 显式 API（比 Image.open 注册机制更可靠）
+            from pillow_heif import open_heif
+            from PIL import Image as PILImage
+            from PIL import ImageOps
 
-            img = Image.open(full_path)
+            heif_file = open_heif(full_path)
+            img = PILImage.frombytes(
+                heif_file.mode, heif_file.size, heif_file.data
+            )
+            try:
+                img = ImageOps.exif_transpose(img)
+            except Exception:
+                pass
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
             buf = BytesIO()
@@ -87,10 +95,12 @@ def serve_photo(filepath: str):
                 media_type="image/jpeg",
                 headers={"Cache-Control": "max-age=3600"},
             )
+        except ImportError:
+            logger.error(
+                "HEIC 转码失败: pillow_heif 未安装。请重建 Docker。"
+            )
         except Exception as e:
             logger.error(f"HEIC 转码失败 {full_path}: {e}")
-            # 降级为直接返回原文件
-            pass
 
     try:
         return FileResponse(full_path, headers={"Cache-Control": "max-age=3600"})

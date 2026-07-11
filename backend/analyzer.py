@@ -17,14 +17,27 @@ from PIL import Image, ExifTags
 from backend import config, database
 from backend import progress as pr
 
+logger = logging.getLogger(__name__)
+
 # 注册 HEIC/HEIF 解码支持（必须在 Pillow 打开任何 HEIC 文件前导入）
 try:
     import pillow_heif  # noqa: F401  — 自动注册到 Pillow 的 Image.open()
+    from pillow_heif import open_heif
 except ImportError:
+    open_heif = None
     logger.warning("pillow_heif 未安装，HEIC/HEIF 照片将无法处理")
-    pass
 
-logger = logging.getLogger(__name__)
+
+def open_image(image_path: str) -> Image.Image:
+    """打开图片，HEIC/HEIF 使用 pillow_heif 显式解码。"""
+    ext = Path(image_path).suffix.lower()
+    if ext in (".heic", ".heif") and open_heif is not None:
+        try:
+            heif_file = open_heif(image_path)
+            return Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+        except Exception as e:
+            logger.warning(f"HEIC 解码失败 {image_path}: {e}")
+    return Image.open(image_path)
 
 # ============================================================
 # VLM 提示词（基于 InkTime 优化）
@@ -81,7 +94,7 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 def encode_image(image_path: str) -> tuple[str, int, int]:
     """读取图片，压缩到最大长边，返回 base64 和尺寸"""
     try:
-        img = Image.open(image_path)
+        img = open_image(image_path)
     except Exception as e:
         logger.warning(f"无法打开图片 {image_path}: {e}")
         return None, 0, 0
@@ -130,7 +143,7 @@ def extract_exif(image_path: str) -> dict:
         "exif_json": "{}",
     }
     try:
-        img = Image.open(image_path)
+        img = open_image(image_path)
         raw_exif = img._getexif()
         if not raw_exif:
             return exif_data
@@ -289,7 +302,7 @@ def call_vlm(image_b64: str) -> dict:
 def compute_avg_hash(image_path: str, hash_size: int = 8) -> str | None:
     """计算照片的平均感知哈希（aHash），用于相似照片去重"""
     try:
-        img = Image.open(image_path)
+        img = open_image(image_path)
         # 先校正 EXIF 旋转，保证相同场景不同朝向的照片哈希一致
         try:
             from PIL import ImageOps
