@@ -6,7 +6,7 @@ import threading
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from backend import config, database
@@ -32,13 +32,18 @@ class PhotoUpdatePayload(BaseModel):
 
 @router.get("/photo/{filepath:path}")
 def serve_photo(filepath: str):
-    """提供照片文件（缩略图）
+    """提供照片文件
 
     兼容三种传入形式：
     - 相对 PHOTO_DIR 的路径（如 sample2.jpg，来自 relphoto 过滤器）
     - 绝对路径（如 /Users/.../sample2.jpg）
     - 被去掉前导斜杠的绝对路径（如 Users/.../sample2.jpg，来自编辑弹窗预览）
+
+    HEIC/HEIF 文件自动转码为 JPEG（浏览器不原生支持 HEIC）。
     """
+    from io import BytesIO
+    from pathlib import Path as PathLib
+
     photo_dir = os.path.realpath(config.PHOTO_DIR)
 
     candidates = []
@@ -59,6 +64,33 @@ def serve_photo(filepath: str):
 
     if not full_path:
         raise HTTPException(status_code=404, detail="Not Found")
+
+    # 检查是否为 HEIC/HEIF，自动转码 JPEG
+    ext = PathLib(full_path).suffix.lower()
+    if ext in (".heic", ".heif"):
+        try:
+            # 注册 HEIC 解码
+            try:
+                import pillow_heif  # noqa: F401
+            except ImportError:
+                pass
+            from PIL import Image
+
+            img = Image.open(full_path)
+            if img.mode in ("RGBA", "P"):
+                img = img.convert("RGB")
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=92)
+            buf.seek(0)
+            return Response(
+                content=buf.read(),
+                media_type="image/jpeg",
+                headers={"Cache-Control": "max-age=3600"},
+            )
+        except Exception as e:
+            logger.error(f"HEIC 转码失败 {full_path}: {e}")
+            # 降级为直接返回原文件
+            pass
 
     try:
         return FileResponse(full_path, headers={"Cache-Control": "max-age=3600"})
