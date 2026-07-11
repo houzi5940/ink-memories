@@ -14,10 +14,20 @@ from pathlib import Path
 import requests
 from PIL import Image, ExifTags
 
+logger = logging.getLogger(__name__)
+
+try:
+    import pillow_heif  # type: ignore
+    pillow_heif.register_heif_opener()
+except ImportError:
+    pillow_heif = None
+    logger.warning("pillow-heif 未安装，HEIC/HEIF 文件将无法读取")
+except Exception as e:
+    pillow_heif = None
+    logger.warning(f"无法初始化 HEIC 支持: {e}")
+
 from backend import config, database
 from backend import progress as pr
-
-logger = logging.getLogger(__name__)
 
 # ============================================================
 # VLM 提示词（基于 InkTime 优化）
