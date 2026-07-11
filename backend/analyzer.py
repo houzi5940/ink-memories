@@ -17,6 +17,13 @@ from PIL import Image, ExifTags
 from backend import config, database
 from backend import progress as pr
 
+# 注册 HEIC/HEIF 解码支持（必须在 Pillow 打开任何 HEIC 文件前导入）
+try:
+    import pillow_heif  # noqa: F401  — 自动注册到 Pillow 的 Image.open()
+except ImportError:
+    logger.warning("pillow_heif 未安装，HEIC/HEIF 照片将无法处理")
+    pass
+
 logger = logging.getLogger(__name__)
 
 # ============================================================
@@ -73,12 +80,6 @@ SCORE_SYSTEM_PROMPT = """你是一个个人相册照片评估助手。你的任�
 
 def encode_image(image_path: str) -> tuple[str, int, int]:
     """读取图片，压缩到最大长边，返回 base64 和尺寸"""
-    try:
-        # 注册 HEIC/HEIF 解码支持（首次导入时自动注册到 Pillow）
-        import pillow_heif  # noqa: F401
-    except ImportError:
-        pass
-
     try:
         img = Image.open(image_path)
     except Exception as e:
