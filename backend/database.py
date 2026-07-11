@@ -4,9 +4,23 @@ from __future__ import annotations
 
 import sqlite3
 import json
+import threading
 from contextlib import contextmanager
 
 from backend import config
+
+# 并发写锁：asyncio 多线程并发时确保同一时间只有一个线程写 SQLite
+_write_lock = threading.Lock()
+
+
+@contextmanager
+def write_lock():
+    """获取写锁，避免 sqlite3.OperationalError: database is locked"""
+    _write_lock.acquire()
+    try:
+        yield
+    finally:
+        _write_lock.release()
 
 
 def init_db():
@@ -109,8 +123,9 @@ def insert_photo(photo: dict):
     # tags 以 list 传入时存为 JSON 字符串
     if isinstance(record.get("tags"), (list, tuple, set)):
         record["tags"] = json.dumps(list(record["tags"]), ensure_ascii=False)
-    with get_conn() as conn:
-        conn.execute("""
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("""
             INSERT OR REPLACE INTO photo_scores
             (path, caption, type, memory_score, beauty_score, reason,
              side_caption, width, height, orientation,
@@ -126,7 +141,7 @@ def insert_photo(photo: dict):
              :exif_gps_lat, :exif_gps_lon, :exif_gps_alt, :exif_city,
              :exif_json, :raw_json, :perceptual_hash, :tags, CURRENT_TIMESTAMP)
         """, record)
-        conn.commit()
+            conn.commit()
 
 
 def get_all_photo_hashes() -> list[dict]:
@@ -161,9 +176,10 @@ def update_photo(path: str, updates: dict):
         return
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     values = list(fields.values()) + [path]
-    with get_conn() as conn:
-        conn.execute(f"UPDATE photo_scores SET {set_clause} WHERE path = ?", values)
-        conn.commit()
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute(f"UPDATE photo_scores SET {set_clause} WHERE path = ?", values)
+            conn.commit()
 
 
 def get_photo_by_path(path: str) -> dict | None:
@@ -286,12 +302,13 @@ def search_photos(keyword: str, limit=50):
 
 def save_daily_caption(photo_path: str, date: str, caption: str, side_caption: str = None):
     """保存当日精选描述"""
-    with get_conn() as conn:
-        conn.execute("""
-            INSERT OR REPLACE INTO daily_captions (photo_path, date, caption, side_caption)
-            VALUES (?, ?, ?, ?)
-        """, (photo_path, date, caption, side_caption))
-        conn.commit()
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO daily_captions (photo_path, date, caption, side_caption)
+                VALUES (?, ?, ?, ?)
+            """, (photo_path, date, caption, side_caption))
+            conn.commit()
 
 
 def get_daily_captions(date: str) -> dict:
@@ -307,9 +324,10 @@ def get_daily_captions(date: str) -> dict:
 
 def clear_daily_captions(date: str):
     """清除某天的精选描述（用于重新生成）"""
-    with get_conn() as conn:
-        conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
-        conn.commit()
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
+            conn.commit()
 
 
 # ============================================================
@@ -389,15 +407,16 @@ def batch_skip_photos(paths: list[str]):
     from backend.config import SUPPORTED_EXTENSIONS
     from pathlib import Path
 
-    with get_conn() as conn:
-        for path in paths:
-            ext = Path(path).suffix.lower()
-            if ext not in SUPPORTED_EXTENSIONS:
-                continue
-            conn.execute(
-                """INSERT OR IGNORE INTO photo_scores
-                   (path, memory_score, beauty_score, type, reason, raw_json, analyzed_at)
-                   VALUES (?, 0, 0, '跳过', '人工审核跳过', '{}', CURRENT_TIMESTAMP)""",
-                (path,),
-            )
-        conn.commit()
+    with write_lock():
+        with get_conn() as conn:
+            for path in paths:
+                ext = Path(path).suffix.lower()
+                if ext not in SUPPORTED_EXTENSIONS:
+                    continue
+                conn.execute(
+                    """INSERT OR IGNORE INTO photo_scores
+                       (path, memory_score, beauty_score, type, reason, raw_json, analyzed_at)
+                       VALUES (?, 0, 0, '跳过', '人工审核跳过', '{}', CURRENT_TIMESTAMP)""",
+                    (path,),
+                )
+            conn.commit()
