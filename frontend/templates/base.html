@@ -45,6 +45,23 @@
     <img id="lightbox-img" class="lightbox-img" src="" alt="">
 </div>
 
+<!-- Confirm Modal -->
+<div id="confirmModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeConfirmModal(false)">
+    <div class="modal confirm-modal">
+        <div class="modal-header">
+            <div class="modal-header-icon">🔄</div>
+            <span class="modal-x" onclick="closeConfirmModal(false)">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p id="confirmMessage" class="confirm-message"></p>
+            <div class="confirm-actions">
+                <button type="button" class="btn btn-primary" onclick="closeConfirmModal(true)">确定</button>
+                <button type="button" class="btn btn-ghost" onclick="closeConfirmModal(false)">取消</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Edit Modal -->
 <div id="editModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeEditModal()">
     <div class="modal">
@@ -96,6 +113,23 @@
                 </div>
                 <div id="editResult" class="edit-result"></div>
             </form>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirmModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeConfirmModal(false)">
+    <div class="modal">
+        <div class="modal-header">
+            <h2>确认操作</h2>
+            <span class="modal-x" onclick="closeConfirmModal(false)">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p id="confirmMessage" class="confirm-message"></p>
+            <div class="form-actions" style="justify-content:flex-end; gap:0.75rem; margin-top: 8px;">
+                <button type="button" class="btn btn-ghost" onclick="closeConfirmModal(false)">取消</button>
+                <button type="button" class="btn btn-primary" onclick="closeConfirmModal(true)">确定</button>
+            </div>
         </div>
     </div>
 </div>
@@ -182,8 +216,59 @@ function openLightbox(src) {
 function closeLightbox() {
     document.getElementById('lightbox').style.display = 'none';
 }
+
+function showConfirm(message) {
+    return new Promise(function(resolve) {
+        var modal = document.getElementById('confirmModal');
+        document.getElementById('confirmMessage').textContent = message;
+        modal.style.display = 'flex';
+        modal._resolve = resolve;
+    });
+}
+
+function closeConfirmModal(result) {
+    var modal = document.getElementById('confirmModal');
+    if (!modal) {
+        return;
+    }
+    modal.style.display = 'none';
+    if (typeof modal._resolve === 'function') {
+        modal._resolve(Boolean(result));
+        modal._resolve = null;
+    }
+}
+
+function reanalyzePhoto(path) {
+    if (!path) {
+        alert('路径无效');
+        return;
+    }
+    showConfirm('确定要重新分析这张照片吗？').then(function(confirmed) {
+        if (!confirmed) {
+            return;
+        }
+        fetch('/api/photo/analyze', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ path: path })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error || d.detail) {
+                alert('重新分析失败：' + (d.error || d.detail));
+                return;
+            }
+            alert(d.message || '已启动重新分析，完成后请刷新页面查看结果。');
+            window.dispatchEvent(new Event('analyze:start'));
+        })
+        .catch(function() {
+            alert('请求失败，请稍后再试');
+        });
+    });
+}
+
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') { closeLightbox(); closeEditModal(); }
+    if (e.key === 'Escape') { closeLightbox(); closeEditModal(); closeConfirmModal(false); }
 });
 
 function openEditModal(path) {

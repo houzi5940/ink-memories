@@ -15,3 +15,5 @@ frontend/dist/
 frontend/static/js/
 node_modules/
 
+.vscode/
+
