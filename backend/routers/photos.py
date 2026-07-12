@@ -117,6 +117,28 @@ def api_photo_detail(path: str = Query(...), db=Depends(get_db)):
     return photo
 
 
+class PhotoPathPayload(BaseModel):
+    path: str
+
+
+@router.post("/api/photo/analyze")
+async def api_photo_analyze(payload: PhotoPathPayload):
+    """重新分析单张照片"""
+    if not payload.path:
+        raise HTTPException(status_code=400, detail="缺少 path")
+
+    try:
+        create_background_task(analyze_selected_photos([payload.path]), "单张照片重新分析")
+    except Exception as e:
+        logger.error(f"重新分析任务启动失败: {e}")
+        raise HTTPException(status_code=500, detail="重新分析任务启动失败")
+
+    return {
+        "status": "started",
+        "message": "重新分析任务已启动，完成后请刷新页面查看结果",
+    }
+
+
 @router.post("/api/photo/update")
 def api_photo_update(payload: PhotoUpdatePayload, db=Depends(get_db)):
     """手动更新照片的评分、标签、旁白"""
