@@ -132,20 +132,23 @@ async def schedule_photo_analysis(paths: list[str]):
         }
         tasks = list(task_to_path.keys())
 
-        for task in asyncio.as_completed(tasks):
-            path = task_to_path[task]
-            try:
-                record = await task
-                if record:
-                    await asyncio.to_thread(database.insert_photo, record)
-                    pr.report_tick(path, success=True)
-                else:
+        pending = set(tasks)
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                path = task_to_path[task]
+                try:
+                    record = task.result()
+                    if record:
+                        await asyncio.to_thread(database.insert_photo, record)
+                        pr.report_tick(path, success=True)
+                    else:
+                        await asyncio.to_thread(_mark_analysis_failed, path)
+                        pr.report_tick(path, success=False)
+                except Exception as e:
+                    logger.error(f"分析任务异常 {path}: {e}", exc_info=e)
                     await asyncio.to_thread(_mark_analysis_failed, path)
                     pr.report_tick(path, success=False)
-            except Exception as e:
-                logger.error(f"分析任务异常 {path}: {e}", exc_info=e)
-                await asyncio.to_thread(_mark_analysis_failed, path)
-                pr.report_tick(path, success=False)
 
 
 async def run_analysis_async():
