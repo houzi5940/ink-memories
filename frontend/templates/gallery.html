@@ -62,6 +62,7 @@
         {% endif %}
       </div>
     </div>
+    <button class="card-reanalyze" onclick="event.stopPropagation(); reanalyzePhoto('{{ photo.path }}')" title="重新分析">⟳</button>
     <button class="card-edit" onclick="event.stopPropagation(); openEditModal('{{ photo.path }}')" title="编辑">✎</button>
   </div>
   {% endfor %}

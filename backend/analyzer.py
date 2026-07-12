@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import requests
@@ -488,7 +488,7 @@ def deduplicate_similar_photos(phash: str, new_path: str, new_memory_score: floa
     existing = database.get_all_photo_hashes()
     similar = [
         row for row in existing
-        if hamming_distance(phash, row.get("perceptual_hash")) <= config.SIMILARITY_THRESHOLD
+        if row.get("path") != new_path and hamming_distance(phash, row.get("perceptual_hash")) <= config.SIMILARITY_THRESHOLD
     ]
 
     if not similar:
