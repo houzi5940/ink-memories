@@ -60,6 +60,14 @@ def _relphoto_filter(path: str | None) -> str:
     return path.lstrip("/")
 
 
+def _safe_score(value: float | None) -> str:
+    """安全格式化评分，处理 None 值"""
+    if value is None:
+        return "-"
+    return f"{value:.0f}"
+
+
 templates.env.globals["url_for"] = _url_for
 templates.env.filters["fromjson"] = _fromjson_filter
 templates.env.filters["relphoto"] = _relphoto_filter
+templates.env.filters["safescore"] = _safe_score

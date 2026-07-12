@@ -19,7 +19,7 @@
         <div class="bar-track">
           <div class="bar-fill" style="width: {{ (t.cnt / total * 100) if total else 0 }}%"></div>
         </div>
-        <span class="bar-value">{{ t.cnt }} · {{ "%.0f"|format(t.avg_score) }}分</span>
+        <span class="bar-value">{{ t.cnt }} · {{ t.avg_score|safescore }}分</span>
       </div>
       {% endfor %}
     </div>
