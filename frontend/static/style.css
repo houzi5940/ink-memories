@@ -191,10 +191,10 @@ body {
 .photo-card .date-tag { color: var(--ink-text-muted); }
 .photo-card .loc-tag { color: var(--ink-text-muted); }
 
-.photo-card .card-edit {
+.photo-card .card-edit,
+.photo-card .card-reanalyze {
   position: absolute;
   top: 10px;
-  right: 10px;
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -210,7 +210,10 @@ body {
   justify-content: center;
   backdrop-filter: blur(4px);
 }
-.card-edit:hover { background: var(--ink-accent); }
+.photo-card .card-edit { right: 10px; }
+.photo-card .card-reanalyze { left: 10px; }
+.card-edit:hover,
+.card-reanalyze:hover { background: var(--ink-accent); }
 
 /* ========================================
    Daily Picks (Featured Layout)
@@ -486,6 +489,34 @@ body {
 .modal-x:hover { color: var(--ink-text); background: var(--ink-surface-hover); }
 .modal-body { padding: 20px 24px 24px; }
 
+/* ========================================
+   Confirm Modal
+   ======================================== */
+.confirm-modal { max-width: min(380px, 100%); text-align: center; }
+.confirm-modal .modal-header {
+  padding: 28px 24px 0;
+  border: none;
+  justify-content: center;
+}
+.confirm-modal .modal-header-icon {
+  font-size: 2rem;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.confirm-modal .modal-x { position: absolute; top: 12px; right: 12px; }
+.confirm-message {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--ink-text-secondary);
+  margin: 0 0 24px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+.confirm-actions .btn { min-width: 100px; justify-content: center; }
+
 .edit-preview { text-align: center; margin-bottom: 20px; }
 .edit-preview img {
   box-shadow: 0 6px 20px rgba(26,26,46,0.14);
@@ -553,6 +584,13 @@ body {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 1px solid var(--ink-border);
+}
+
+.confirm-message {
+  color: var(--ink-text);
+  font-size: 0.98rem;
+  line-height: 1.6;
+  margin: 0;
 }
 
 .edit-result {
