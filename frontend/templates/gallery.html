@@ -55,8 +55,8 @@
       {% endif %}
       <div class="card-meta">
         <span class="tag">{{ photo.type }}</span>
-        <span class="score mem">{{ "%.0f"|format(photo.memory_score) }}</span>
-        <span class="score bea">{{ "%.0f"|format(photo.beauty_score) }}</span>
+        <span class="score mem">{{ photo.memory_score|safescore }}</span>
+        <span class="score bea">{{ photo.beauty_score|safescore }}</span>
         {% if photo.exif_datetime %}
         <span class="date-tag">{{ photo.exif_datetime[:10] }}</span>
         {% endif %}
