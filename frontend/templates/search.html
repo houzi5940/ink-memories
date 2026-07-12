@@ -36,8 +36,8 @@
       {% endif %}
       <div class="card-meta">
         <span class="tag">{{ photo.type }}</span>
-        <span class="score mem">{{ "%.0f"|format(photo.memory_score) }}</span>
-        <span class="score bea">{{ "%.0f"|format(photo.beauty_score) }}</span>
+        <span class="score mem">{{ photo.memory_score|safescore }}</span>
+        <span class="score bea">{{ photo.beauty_score|safescore }}</span>
       </div>
     </div>
     <button class="card-edit" onclick="event.stopPropagation(); openEditModal('{{ photo.path }}')" title="编辑">✎</button>
