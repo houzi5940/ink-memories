@@ -361,6 +361,19 @@ body {
   margin: 32px 0;
 }
 .pagination .page-info { font-size: 0.9rem; color: var(--ink-text-muted); }
+.page-jump { display: flex; align-items: center; gap: 6px; }
+.page-jump-input {
+  width: 60px;
+  padding: 8px 10px;
+  border: 1px solid var(--ink-border);
+  border-radius: var(--ink-radius-sm);
+  font-family: var(--ink-font);
+  font-size: 0.9rem;
+  text-align: center;
+  color: var(--ink-text);
+  background: var(--ink-surface);
+}
+.page-jump-input:focus { outline: none; border-color: var(--ink-accent); }
 
 /* ========================================
    Buttons

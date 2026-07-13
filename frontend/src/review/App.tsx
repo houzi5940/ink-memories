@@ -177,6 +177,16 @@ export function App() {
     setPage((p) => Math.min(totalBatches - 1, p + 1))
   }, [totalBatches])
 
+  // Jump to a specific page (1-based input)
+  const [pageInput, setPageInput] = React.useState('')
+  const jumpToPage = React.useCallback(() => {
+    const n = parseInt(pageInput, 10)
+    if (isNaN(n)) return
+    const target = Math.max(1, Math.min(totalBatches, n)) - 1
+    setPage(target)
+    setPageInput('')
+  }, [pageInput, totalBatches])
+
   const swipeDone = swipeIndex >= photos.length
 
   return (
@@ -412,6 +422,30 @@ export function App() {
                 >
                   下一批 →
                 </button>
+                <form
+                  className="flex items-center gap-1.5 ml-1"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    jumpToPage()
+                  }}
+                >
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalBatches}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    placeholder="页码"
+                    aria-label="跳转到指定批次"
+                    className="w-14 px-2 py-1.5 text-sm text-center text-gray-700 bg-gray-100 rounded-lg border border-transparent focus:border-blue-400 focus:bg-white focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 active:bg-blue-100"
+                  >
+                    跳转
+                  </button>
+                </form>
               </div>
             )}
           </>
