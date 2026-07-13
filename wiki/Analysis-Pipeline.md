@@ -341,33 +341,55 @@ pr.report_done()     # running=false, phase="done"
 | `SIMILARITY_THRESHOLD` | 5/64 | 去重敏感度（越小越严格）|
 | `SIMILARITY_PENALTY_SCORE` | 10 | 重复照片降分目标值 |
 
-## 人工审核评分流：`analyze_selected_photos(paths)`
+## 人工审核评分流：分析任务队列 + 常驻 worker
 
-此函数由 `POST /api/review/submit` 触发，逻辑与 `run_analysis_async()` 一致，共享 `schedule_photo_analysis()` 异步调度引擎。
+`POST /api/review/submit` 不再直接启动分析，而是 **同步入队 + 唤醒常驻 worker**：接口把选中路径写入 `photo_scores`（`status='pending'`）后立即返回，实际分析由后台常驻 `analysis_worker()` 消费。
+
+### 入队端：`analyze_selected_photos(paths)`
 
 ```python
 async def analyze_selected_photos(paths: list[str]):
-    database.init_db()
-    total = len(paths)
-
-    pr.start_analysis(total=total)
-    pr.report_analyzing()
-
-    try:
-        await schedule_photo_analysis(paths)
-    except Exception as e:
-        logger.error(f"选中照片分析任务异常: {e}", exc_info=e)
-    finally:
-        pr.report_done()
+    # 收敛为“入队 + 唤醒”，不再在请求内跑分析
+    database.enqueue_pending(paths)   # INSERT OR IGNORE, status='pending'
+    analyzer.signal_worker()          # 唤醒 worker
 ```
 
-> 后台任务通过 `create_background_task()` 启动，自动捕获未被上层处理的异常并记录日志。
+> `POST /api/review/submit` 和 `POST /api/photo/analyze`（单张重分析，走 `requeue_paths` 强制置 pending）都只做入队+唤醒。
+
+### 消费端：`analysis_worker()`
+
+```python
+async def analysis_worker():
+    ev = _get_wake_event()
+    while True:
+        await ev.wait(); ev.clear()
+        started = False
+        while True:
+            paths = database.claim_pending_batch(concurrency)  # pending→analyzing 原子领取
+            if not paths:
+                break
+            if not started:
+                pr.start_analysis(total=0); pr.report_analyzing(); started = True
+            pr.extend_total(len(paths))          # 总数逐批累加（不清零）
+            await _analyze_claimed_batch(paths)  # 线程池并发 analyze_one_photo
+        if started:
+            pr.report_done()
+```
+
+- `claim_pending_batch()` 在写锁内 `SELECT ... WHERE status='pending' LIMIT N` + `UPDATE status='analyzing'` 原子领取，避免重复处理。
+- 每张完成后：成功→`insert_photo()` + `mark_status(done)`；失败→`_mark_analysis_failed()` + `mark_status(failed)`。
+- 队列排空后 worker 挂起（`await ev.wait()`），新提交再次唤醒。
+
+### 启动恢复
+
+`lifespan` 启动时调用 `reset_stale_analyzing()`，将上次进程中断遗留的 `analyzing` 重置为 `pending`，并唤醒 worker 续跑，避免任务丢失。
 
 ### 与 `run_analysis_async()` 的区别
 
-| 环节 | `run_analysis_async()` | `analyze_selected_photos()` |
+| 环节 | `run_analysis_async()`（全量） | 审核队列（submit → worker） |
 |------|-----------------|----------------------------|
-| 照片来源 | `scan_photos()` 扫描全目录 | 前端传入的 `paths` 列表 |
-| 增量跳过 | 跳过已分析路径 | 不跳过（用户主动选的） |
-| `batch_skip_photos()` | 不涉及 | 未被选中的照片 score=0 入库 |
+| 照片来源 | `scan_photos()` 扫描全目录 | 前端传入的 `paths` 入队 |
+| 触发方式 | 后台任务一次性调度 | 入队后由常驻 worker 逐批领取 |
+| 进度 total | 开始即定 | `extend_total` 随队列排空累加 |
+| 重启恢复 | 不涉及 | `reset_stale_analyzing()` 续跑 |
 | 适用场景 | 全量/定时分析 | 人工审核后只对选中照片评分 |
