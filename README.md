@@ -137,12 +137,13 @@ ink-memories/
 | `GET` | `/search` | 搜索页面 |
 | `GET` | `/review` | 人工审核页（React SPA，三种模式） |
 | `GET` | `/photo/{path}` | 照片文件服务 |
-| `POST` | `/api/analyze` | 触发分析（后台） |
-| `GET` | `/api/analyze/progress` | 分析进度轮询 |
+| `POST` | `/api/analyze` | 触发全量分析（后台） |
+| `GET` | `/api/analyze/progress` | 分析进度轮询（含队列 pending/analyzing） |
 | `GET` | `/api/photo/detail` | 照片详情 |
 | `POST` | `/api/photo/update` | 编辑照片 |
+| `POST` | `/api/photo/analyze` | 重新分析单张照片（入队） |
 | `GET` | `/api/review/photos` | 未评分照片列表（分页） |
-| `POST` | `/api/review/submit` | 提交选中照片 VLM 评分 |
+| `POST` | `/api/review/submit` | 提交选中照片入分析队列 |
 | `POST` | `/api/review/skip` | 跳过未选中照片 |
 | `GET` | `/api/tags` | 标签列表 |
 | `GET` | `/api/status` | 系统状态 |
