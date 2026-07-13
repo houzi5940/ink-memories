@@ -38,12 +38,12 @@
 ink-memories/
 ├── backend/              # Python 后端
 │   ├── cli.py            # CLI 入口 (analyze/server/daily/backfill)
-│   ├── main.py           # FastAPI app 初始化 + 路由挂载
+│   ├── main.py           # FastAPI app + lifespan（启动/关闭分析 worker）
 │   ├── config.py         # 配置管理（环境变量）
-│   ├── database.py       # SQLite 数据层
-│   ├── analyzer.py       # 照片分析核心（VLM + 哈希去重）
+│   ├── database.py       # SQLite 数据层 + 分析任务队列（status 字段）
+│   ├── analyzer.py       # 照片分析核心（VLM + 哈希去重 + 常驻 worker）
 │   ├── daily.py          # 每日精选算法
-│   ├── progress.py       # 分析进度追踪（线程安全）
+│   ├── progress.py       # 分析进度追踪（线程安全，worker 单写）
 │   ├── dependencies.py   # FastAPI 依赖注入
 │   ├── templates.py      # Jinja2 模板引擎配置
 │   └── routers/
@@ -122,12 +122,33 @@ run_analysis_async()
   │   └─────────────┴──────────────┴──────────────┘
   │
   ├─ POST /api/review/submit {paths: [...]}
-  │    analyze_selected_photos(paths)
-  │    └─ ThreadPoolExecutor → analyze_one_photo(path)
+  │    database.enqueue_pending(paths)   ← 同步写 status='pending'
+  │    analyzer.signal_worker()          ← 唤醒常驻 worker，接口立即返回
   │
-  └─ POST /api/review/skip {paths: [...]}
-       batch_skip_photos(paths)
-       └─ INSERT score=0 → 标记为已处理
+  ├─ POST /api/review/skip {paths: [...]}
+  │    batch_skip_photos(paths)
+  │    └─ INSERT status='skipped' → 标记为已处理
+  │
+  └─ 常驻 analysis_worker（后台，被唤醒后）
+       claim_pending_batch() → analyze_one_photo() → mark_status(done/failed)
+       逐批领取直到队列排空；进度由 worker 统一上报
+```
+
+### 分析任务队列（常驻 worker）
+
+```
+提交/重分析 ──enqueue_pending / requeue_paths──▶ photo_scores(status='pending')
+                                                      │ signal_worker()
+                                                      ▼
+                              analysis_worker()  ← asyncio 常驻任务
+                                while wake_event:
+                                  claim_pending_batch(N)   status: pending→analyzing
+                                  run_in_executor(analyze_one_photo)
+                                  insert_photo + mark_status(done/failed)
+                                  pr.report_tick / extend_total
+                                队列排空 → 挂起等待下次唤醒
+
+启动恢复：reset_stale_analyzing()  上次中断的 analyzing → pending
 ```
 
 ### 每日精选流程
@@ -157,9 +178,11 @@ get_daily_summary()
 ## 线程模型
 
 - **主线程**: Uvicorn 处理 HTTP 请求
-- **asyncio 事件循环**: 协调分析任务的异步调度（`schedule_photo_analysis`）
-- **后台任务**: 通过 `create_background_task()` 启动，异常自动捕获记录
+- **应用生命周期**: `lifespan` 上下文管理器在启动时执行 `reset_stale_analyzing()` 并拉起常驻分析 worker，关闭时 cancel worker
+- **常驻分析 worker**: 单个 asyncio 任务消费 `photo_scores` 中的 pending 队列；被 `signal_worker()` 唤醒，队列排空后挂起等待
+- **asyncio 事件循环**: 协调分析任务的异步调度（`schedule_photo_analysis` / worker）
+- **后台任务**: 全量分析通过 `create_background_task()` 启动，异常自动捕获记录
 - **并发分析**: `ThreadPoolExecutor` + asyncio 混合模型，并发数由 `get_effective_concurrency()` 根据可用内存动态调整
 - **内存检测**: 启动分析前自动检测 cgroup 限制 / /proc/meminfo / sysconf，低内存环境自动降级并发数
-- **进度同步**: threading.Lock 保护 progress 状态
-- **数据库写锁**: threading.Lock 串行化 SQLite 写操作，避免并发冲突
+- **进度同步**: threading.Lock 保护 progress 状态；worker 是进度唯一写者，避免并发提交互相重置计数
+- **数据库写锁**: threading.Lock 串行化 SQLite 写操作（含队列领取/状态更新），避免并发冲突

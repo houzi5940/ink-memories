@@ -18,6 +18,8 @@
 
 可用排序值：`memory_score DESC`, `beauty_score DESC`, `exif_datetime DESC`, `analyzed_at DESC`
 
+> 分页支持直接输入页码跳转（页码越界会被后端钳制到 `1 ~ total_pages`）。
+
 ### `GET /stats`
 统计仪表盘。显示照片总数、类型分布、评分分布、标签词云。
 
@@ -42,7 +44,7 @@
 ## API 接口
 
 ### `POST /api/analyze`
-触发照片分析（后台线程运行）。
+触发全量扫描分析（后台运行）。
 
 **响应：**
 ```json
@@ -50,7 +52,7 @@
 ```
 
 ### `GET /api/analyze/progress`
-获取分析进度（轮询接口）。
+获取分析进度（轮询接口）。进度由常驻分析 worker 统一上报。
 
 **响应：**
 ```json
@@ -62,7 +64,9 @@
   "fail": 1,
   "current_file": "/photos/IMG_001.jpg",
   "phase": "analyzing",
-  "elapsed": 15.3
+  "elapsed": 15.3,
+  "pending": 8,
+  "analyzing": 2
 }
 ```
 
@@ -71,13 +75,15 @@
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `running` | bool | 是否正在分析 |
-| `total` | int | 本批总数（0 = 正在扫描）|
+| `total` | int | 本轮已领取总数（随队列排空逐步累加）|
 | `done` | int | 已完成数 |
 | `success` | int | 成功数 |
 | `fail` | int | 失败数 |
 | `current_file` | string | 当前正在分析的文件名 |
 | `phase` | string | `scanning` / `analyzing` / `done` |
 | `elapsed` | float | 已耗时（秒）|
+| `pending` | int | 队列中待分析数（实时统计）|
+| `analyzing` | int | 正在分析中的数量（实时统计）|
 
 ### `GET /api/photo/detail`
 获取单张照片详情。
@@ -122,7 +128,7 @@
 按使用次数降序排列。
 
 ### `POST /api/review/submit`
-提交选中照片进行 VLM 评分（后台线程异步执行）。
+提交选中照片进入分析队列。同步将路径写入 `photo_scores`（`status='pending'`）并唤醒常驻 worker，接口立即返回，不阻塞。
 
 **请求体（JSON）：**
 ```json
@@ -131,8 +137,10 @@
 
 **响应：**
 ```json
-{"status": "started", "message": "已提交 2 张照片进行分析"}
+{"status": "queued", "count": 2, "message": "已提交 2 张照片进入分析队列"}
 ```
+
+> `count` 为实际新入队数量（已在库的路径不重复入队）。
 
 ### `POST /api/review/skip`
 跳过未选中的照片（写入 photo_scores，memory_score=0，标记为已处理）。
@@ -145,6 +153,19 @@
 **响应：**
 ```json
 {"status": "ok", "skipped": 1}
+```
+
+### `POST /api/photo/analyze`
+重新分析单张照片。将该路径强制置回 `status='pending'` 重新入队，由常驻 worker 消费。
+
+**请求体（JSON）：**
+```json
+{"path": "/photos/IMG_001.jpg"}
+```
+
+**响应：**
+```json
+{"status": "queued", "message": "已重新入队，完成后请刷新页面查看结果"}
 ```
 
 ### `GET /api/review/photos`
@@ -200,6 +221,7 @@
 | `exif_gps_lat/lon` | REAL | GPS 坐标 |
 | `tags` | TEXT | JSON 数组，如 `["旅行","海边"]` |
 | `perceptual_hash` | TEXT | 感知哈希（用于去重）|
+| `status` | TEXT | 分析状态：`pending`/`analyzing`/`done`/`failed`/`skipped` |
 | `analyzed_at` | TIMESTAMP | 分析时间 |
 
 ### daily_captions 表

@@ -84,6 +84,14 @@
   {% if page < total_pages %}
   <a href="?page={{ page+1 }}&order={{ current_order }}&type={{ current_type }}&tag={{ current_tag }}" class="btn">下一页 →</a>
   {% endif %}
+  <form class="page-jump" method="get" action="/gallery">
+    <input type="hidden" name="order" value="{{ current_order }}">
+    <input type="hidden" name="type" value="{{ current_type }}">
+    <input type="hidden" name="tag" value="{{ current_tag }}">
+    <input type="number" name="page" class="page-jump-input" min="1" max="{{ total_pages }}"
+           value="{{ page }}" aria-label="跳转到页码">
+    <button type="submit" class="btn btn-ghost">跳转</button>
+  </form>
 </div>
 {% endif %}
 {% endblock %}

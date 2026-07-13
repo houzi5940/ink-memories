@@ -56,6 +56,7 @@ def gallery(
         photos = db.get_all_photos(limit=per_page, offset=(page - 1) * per_page, order_by=order)
 
     total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
 
     return templates.TemplateResponse(
         request,

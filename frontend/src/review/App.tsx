@@ -132,24 +132,33 @@ export function App() {
     if (selected.size === 0 || submitting) return
     setSubmitting(true)
     try {
-      const selectedPaths = Array.from(selected)
-      const skippedPaths = photos
-        .map((p) => p.path)
-        .filter((p) => !selected.has(p))
+      // 仅针对当前页的照片：勾选的送评分，未勾选的标记跳过
+      // （selected 为全局累积，这里按当前页收敛，避免跨页误提交/漏跳过）
+      const currentPaths = photos.map((p) => p.path)
+      const selectedPaths = currentPaths.filter((p) => selected.has(p))
+      const skippedPaths = currentPaths.filter((p) => !selected.has(p))
 
-      // Submit selected for analysis
-      const res = await submitForAnalysis({ paths: selectedPaths })
-      console.log('Submit result:', res)
+      // 两个操作相互独立，任一失败都不应阻断另一个
+      const [submitRes, skipRes] = await Promise.allSettled([
+        selectedPaths.length > 0
+          ? submitForAnalysis({ paths: selectedPaths })
+          : Promise.resolve(null),
+        skippedPaths.length > 0
+          ? skipPhotos({ paths: skippedPaths })
+          : Promise.resolve(null),
+      ])
 
-      // Skip unselected
-      if (skippedPaths.length > 0) {
-        await skipPhotos({ paths: skippedPaths })
+      const failures: string[] = []
+      if (submitRes.status === 'rejected') failures.push('评分提交失败')
+      if (skipRes.status === 'rejected') failures.push('跳过标记失败')
+      if (failures.length > 0) {
+        setError(failures.join('，') + '，请重试')
       }
 
-      // Clear selection for submitted photos
+      // 清除当前页照片的选中状态
       setSelected((prev) => {
         const next = new Set(prev)
-        selectedPaths.forEach((p) => next.delete(p))
+        currentPaths.forEach((p) => next.delete(p))
         return next
       })
 
@@ -176,6 +185,16 @@ export function App() {
   const nextPage = React.useCallback(() => {
     setPage((p) => Math.min(totalBatches - 1, p + 1))
   }, [totalBatches])
+
+  // Jump to a specific page (1-based input)
+  const [pageInput, setPageInput] = React.useState('')
+  const jumpToPage = React.useCallback(() => {
+    const n = parseInt(pageInput, 10)
+    if (isNaN(n)) return
+    const target = Math.max(1, Math.min(totalBatches, n)) - 1
+    setPage(target)
+    setPageInput('')
+  }, [pageInput, totalBatches])
 
   const swipeDone = swipeIndex >= photos.length
 
@@ -412,6 +431,30 @@ export function App() {
                 >
                   下一批 →
                 </button>
+                <form
+                  className="flex items-center gap-1.5 ml-1"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    jumpToPage()
+                  }}
+                >
+                  <input
+                    type="number"
+                    min={1}
+                    max={totalBatches}
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value)}
+                    placeholder="页码"
+                    aria-label="跳转到指定批次"
+                    className="w-14 px-2 py-1.5 text-sm text-center text-gray-700 bg-gray-100 rounded-lg border border-transparent focus:border-blue-400 focus:bg-white focus:outline-none"
+                  />
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 active:bg-blue-100"
+                  >
+                    跳转
+                  </button>
+                </form>
               </div>
             )}
           </>
