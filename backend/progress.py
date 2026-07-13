@@ -36,6 +36,13 @@ class _Progress:
         with self._lock:
             self._phase = phase
 
+    def extend_total(self, n: int):
+        """排空过程中有新任务加入时累加总数"""
+        if n <= 0:
+            return
+        with self._lock:
+            self._total += n
+
     def tick(self, filepath: str = "", success: bool = True):
         with self._lock:
             self._done += 1
@@ -55,7 +62,7 @@ class _Progress:
     def snapshot(self) -> dict:
         with self._lock:
             elapsed = round(time.time() - self._started_at, 1) if self._started_at else 0
-            return {
+            snap = {
                 "running": self._running,
                 "total": self._total,
                 "done": self._done,
@@ -65,6 +72,16 @@ class _Progress:
                 "phase": self._phase,
                 "elapsed": elapsed,
             }
+        # 附带队列实时统计（供前端展示“排队中 N 张”）；失败时不影响主体进度
+        try:
+            from backend import database
+            stats = database.get_queue_stats()
+            snap["pending"] = stats["pending"]
+            snap["analyzing"] = stats["analyzing"]
+        except Exception:
+            snap["pending"] = 0
+            snap["analyzing"] = 0
+        return snap
 
 
 # 模块级全局实例
@@ -93,3 +110,7 @@ def report_tick(filepath: str = "", success: bool = True):
 
 def report_done():
     _progress.finish()
+
+
+def extend_total(n: int):
+    _progress.extend_total(n)

@@ -132,24 +132,33 @@ export function App() {
     if (selected.size === 0 || submitting) return
     setSubmitting(true)
     try {
-      const selectedPaths = Array.from(selected)
-      const skippedPaths = photos
-        .map((p) => p.path)
-        .filter((p) => !selected.has(p))
+      // 仅针对当前页的照片：勾选的送评分，未勾选的标记跳过
+      // （selected 为全局累积，这里按当前页收敛，避免跨页误提交/漏跳过）
+      const currentPaths = photos.map((p) => p.path)
+      const selectedPaths = currentPaths.filter((p) => selected.has(p))
+      const skippedPaths = currentPaths.filter((p) => !selected.has(p))
 
-      // Submit selected for analysis
-      const res = await submitForAnalysis({ paths: selectedPaths })
-      console.log('Submit result:', res)
+      // 两个操作相互独立，任一失败都不应阻断另一个
+      const [submitRes, skipRes] = await Promise.allSettled([
+        selectedPaths.length > 0
+          ? submitForAnalysis({ paths: selectedPaths })
+          : Promise.resolve(null),
+        skippedPaths.length > 0
+          ? skipPhotos({ paths: skippedPaths })
+          : Promise.resolve(null),
+      ])
 
-      // Skip unselected
-      if (skippedPaths.length > 0) {
-        await skipPhotos({ paths: skippedPaths })
+      const failures: string[] = []
+      if (submitRes.status === 'rejected') failures.push('评分提交失败')
+      if (skipRes.status === 'rejected') failures.push('跳过标记失败')
+      if (failures.length > 0) {
+        setError(failures.join('，') + '，请重试')
       }
 
-      // Clear selection for submitted photos
+      // 清除当前页照片的选中状态
       setSelected((prev) => {
         const next = new Set(prev)
-        selectedPaths.forEach((p) => next.delete(p))
+        currentPaths.forEach((p) => next.delete(p))
         return next
       })
 

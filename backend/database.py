@@ -53,17 +53,25 @@ def init_db():
                 raw_json        TEXT,
                 perceptual_hash TEXT,
                 tags            TEXT,  -- JSON 数组，如 ["旅行", "海边"]
+                status          TEXT,  -- pending | analyzing | done | failed | skipped
                 used_at         TEXT,
                 analyzed_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
 
-        # 兼容旧数据库：新增 perceptual_hash / tags 字段
+        # 兼容旧数据库：新增 perceptual_hash / tags / status 字段
         columns = {row[1] for row in conn.execute("PRAGMA table_info(photo_scores)").fetchall()}
         if "perceptual_hash" not in columns:
             conn.execute("ALTER TABLE photo_scores ADD COLUMN perceptual_hash TEXT")
         if "tags" not in columns:
             conn.execute("ALTER TABLE photo_scores ADD COLUMN tags TEXT")
+        if "status" not in columns:
+            conn.execute("ALTER TABLE photo_scores ADD COLUMN status TEXT")
+            # 一次性回填：按现有 type 标记推断分析状态
+            conn.execute("UPDATE photo_scores SET status = 'pending' WHERE type = '待分析'")
+            conn.execute("UPDATE photo_scores SET status = 'failed'  WHERE type = '分析失败'")
+            conn.execute("UPDATE photo_scores SET status = 'skipped' WHERE type = '跳过'")
+            conn.execute("UPDATE photo_scores SET status = 'done' WHERE status IS NULL")
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_memory_score
@@ -72,6 +80,10 @@ def init_db():
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_exif_datetime
             ON photo_scores(exif_datetime)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_status
+            ON photo_scores(status)
         """)
 
         # 每日精选描述缓存
@@ -415,8 +427,104 @@ def batch_skip_photos(paths: list[str]):
                     continue
                 conn.execute(
                     """INSERT OR IGNORE INTO photo_scores
-                       (path, memory_score, beauty_score, type, reason, raw_json, analyzed_at)
-                       VALUES (?, 0, 0, '跳过', '人工审核跳过', '{}', CURRENT_TIMESTAMP)""",
+                       (path, memory_score, beauty_score, type, reason, raw_json, status, analyzed_at)
+                       VALUES (?, 0, 0, '跳过', '人工审核跳过', '{}', 'skipped', CURRENT_TIMESTAMP)""",
                     (path,),
                 )
             conn.commit()
+
+
+# ============================================================
+# 分析任务队列（status: pending / analyzing / done / failed / skipped）
+# ============================================================
+
+def enqueue_pending(paths: list[str]) -> int:
+    """将选中照片写入队列（status='pending'）。已在库的路径保持不动。
+
+    返回实际新入队的数量。
+    """
+    from backend.config import SUPPORTED_EXTENSIONS
+    from pathlib import Path
+
+    count = 0
+    with write_lock():
+        with get_conn() as conn:
+            for path in paths:
+                if Path(path).suffix.lower() not in SUPPORTED_EXTENSIONS:
+                    continue
+                cur = conn.execute(
+                    """INSERT OR IGNORE INTO photo_scores
+                       (path, type, reason, raw_json, status, analyzed_at)
+                       VALUES (?, '待分析', '等待分析', '{}', 'pending', CURRENT_TIMESTAMP)""",
+                    (path,),
+                )
+                count += cur.rowcount
+            conn.commit()
+    return count
+
+
+def requeue_paths(paths: list[str]):
+    """强制将指定路径置回 pending（供单张重新分析；已入库的 done 照片重新排队）"""
+    if not paths:
+        return
+    with write_lock():
+        with get_conn() as conn:
+            for path in paths:
+                conn.execute(
+                    "UPDATE photo_scores SET status = 'pending', type = '待分析', reason = '等待重新分析' WHERE path = ?",
+                    (path,),
+                )
+            conn.commit()
+
+
+def claim_pending_batch(limit: int) -> list[str]:
+    """原子领取一批 pending 照片：选中后置为 analyzing，返回其路径列表。"""
+    if limit <= 0:
+        limit = 1
+    with write_lock():
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT path FROM photo_scores WHERE status = 'pending' LIMIT ?",
+                (limit,),
+            ).fetchall()
+            paths = [r["path"] for r in rows]
+            if paths:
+                placeholders = ",".join("?" for _ in paths)
+                conn.execute(
+                    f"UPDATE photo_scores SET status = 'analyzing' WHERE path IN ({placeholders})",
+                    paths,
+                )
+                conn.commit()
+            return paths
+
+
+def mark_status(path: str, status: str):
+    """更新单张照片的分析状态"""
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("UPDATE photo_scores SET status = ? WHERE path = ?", (status, path))
+            conn.commit()
+
+
+def get_queue_stats() -> dict:
+    """按 status 统计各状态数量"""
+    stats = {"pending": 0, "analyzing": 0, "done": 0, "failed": 0, "skipped": 0}
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS cnt FROM photo_scores WHERE status IS NOT NULL GROUP BY status"
+        ).fetchall()
+    for row in rows:
+        if row["status"] in stats:
+            stats[row["status"]] = row["cnt"]
+    return stats
+
+
+def reset_stale_analyzing() -> int:
+    """启动恢复：将上次中断遗留的 analyzing 重置为 pending，返回重置数量"""
+    with write_lock():
+        with get_conn() as conn:
+            cur = conn.execute(
+                "UPDATE photo_scores SET status = 'pending' WHERE status = 'analyzing'"
+            )
+            conn.commit()
+            return cur.rowcount

@@ -151,6 +151,88 @@ async def schedule_photo_analysis(paths: list[str]):
                     pr.report_tick(path, success=False)
 
 
+# ============================================================
+# 分析任务队列 worker（常驻 asyncio 任务，消费 DB 中的 pending 照片）
+# ============================================================
+
+_wake_event: asyncio.Event | None = None
+
+
+def _get_wake_event() -> asyncio.Event:
+    global _wake_event
+    if _wake_event is None:
+        _wake_event = asyncio.Event()
+    return _wake_event
+
+
+def signal_worker():
+    """唤醒常驻 worker 去消费队列"""
+    _get_wake_event().set()
+
+
+async def _analyze_claimed_batch(paths: list[str]):
+    """并发分析一批已领取(analyzing)的照片，更新库与状态、上报进度"""
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor(max_workers=max(1, len(paths))) as executor:
+        task_to_path = {
+            asyncio.ensure_future(loop.run_in_executor(executor, analyze_one_photo, path)): path
+            for path in paths
+        }
+        pending = set(task_to_path.keys())
+        while pending:
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                path = task_to_path[task]
+                try:
+                    record = task.result()
+                    if record:
+                        await asyncio.to_thread(database.insert_photo, record)
+                        await asyncio.to_thread(database.mark_status, path, "done")
+                        pr.report_tick(path, success=True)
+                    else:
+                        await asyncio.to_thread(_mark_analysis_failed, path)
+                        await asyncio.to_thread(database.mark_status, path, "failed")
+                        pr.report_tick(path, success=False)
+                except Exception as e:
+                    logger.error(f"分析任务异常 {path}: {e}", exc_info=e)
+                    await asyncio.to_thread(_mark_analysis_failed, path)
+                    await asyncio.to_thread(database.mark_status, path, "failed")
+                    pr.report_tick(path, success=False)
+
+
+async def analysis_worker():
+    """常驻分析 worker：被唤醒后逐批领取 pending 照片分析，直到队列排空。
+
+    - 进度的唯一写者，避免并发提交互相重置计数。
+    - total 随实际领取量递增，排空中有新 pending 加入也能正确累加。
+    """
+    database.init_db()
+    ev = _get_wake_event()
+    logger.info("分析 worker 已启动")
+    while True:
+        await ev.wait()
+        ev.clear()
+
+        started = False
+        try:
+            while True:
+                concurrency = get_effective_concurrency()
+                paths = await asyncio.to_thread(database.claim_pending_batch, concurrency)
+                if not paths:
+                    break
+                if not started:
+                    pr.start_analysis(total=0)
+                    pr.report_analyzing()
+                    started = True
+                pr.extend_total(len(paths))
+                await _analyze_claimed_batch(paths)
+        except Exception as e:
+            logger.error(f"分析 worker 异常: {e}", exc_info=e)
+        finally:
+            if started:
+                pr.report_done()
+
+
 async def run_analysis_async():
     database.init_db()
 
@@ -620,22 +702,13 @@ def backfill_perceptual_hashes():
 
 
 async def analyze_selected_photos(paths: list[str]):
-    """仅对指定路径的照片运行 VLM 评分（人工审核勾选后调用）"""
-    database.init_db()
+    """人工审核勾选后：将选中照片写入队列并唤醒常驻 worker。
 
-    total = len(paths)
-    if total == 0:
+    不再在本协程内直接分析；入队后立即返回，由 analysis_worker 逐步消费。
+    """
+    if not paths:
         logger.info("没有选中的照片")
         return
-
-    pr.start_analysis(total=total)
-    pr.report_analyzing()
-
-    try:
-        logger.info(f"开始分析 {total} 张选中照片")
-        await schedule_photo_analysis(paths)
-        logger.info(f"选中照片分析完成: 成功 {total}（进度详见 /api/analyze/progress）")
-    except Exception as e:
-        logger.error(f"选中照片分析任务异常: {e}", exc_info=e)
-    finally:
-        pr.report_done()
+    added = await asyncio.to_thread(database.enqueue_pending, paths)
+    logger.info(f"已将 {added}/{len(paths)} 张照片入队（待分析）")
+    signal_worker()
