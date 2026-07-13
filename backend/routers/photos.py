@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from backend import config, database
-from backend.analyzer import run_analysis_async, analyze_selected_photos
+from backend.analyzer import run_analysis_async
 from backend import progress as pr
 from backend.dependencies import get_db
 
@@ -123,19 +123,22 @@ class PhotoPathPayload(BaseModel):
 
 @router.post("/api/photo/analyze")
 async def api_photo_analyze(payload: PhotoPathPayload):
-    """重新分析单张照片"""
+    """重新分析单张照片（重新入队，由常驻 worker 消费）"""
     if not payload.path:
         raise HTTPException(status_code=400, detail="缺少 path")
 
+    from backend import analyzer
+
     try:
-        create_background_task(analyze_selected_photos([payload.path]), "单张照片重新分析")
+        await asyncio.to_thread(database.requeue_paths, [payload.path])
+        analyzer.signal_worker()
     except Exception as e:
-        logger.error(f"重新分析任务启动失败: {e}")
-        raise HTTPException(status_code=500, detail="重新分析任务启动失败")
+        logger.error(f"重新分析入队失败: {e}")
+        raise HTTPException(status_code=500, detail="重新分析入队失败")
 
     return {
-        "status": "started",
-        "message": "重新分析任务已启动，完成后请刷新页面查看结果",
+        "status": "queued",
+        "message": "已重新入队，完成后请刷新页面查看结果",
     }
 
 
@@ -193,21 +196,23 @@ def api_review_photos(
 
 @router.post("/api/review/submit")
 async def api_review_submit(payload: ReviewPathsPayload):
-    """提交选中照片进行 VLM 评分"""
+    """提交选中照片：同步写入队列（待分析）并唤醒常驻 worker"""
     if not payload.paths:
         raise HTTPException(status_code=400, detail="没有选择照片")
 
-    from backend.analyzer import analyze_selected_photos
+    from backend import analyzer
 
     try:
-        create_background_task(analyze_selected_photos(payload.paths), "选中照片分析")
+        added = await asyncio.to_thread(database.enqueue_pending, payload.paths)
+        analyzer.signal_worker()
     except Exception as e:
-        logger.error(f"选中照片分析启动失败: {e}")
-        raise HTTPException(status_code=500, detail="分析任务启动失败")
+        logger.error(f"选中照片入队失败: {e}")
+        raise HTTPException(status_code=500, detail="入队失败")
 
     return {
-        "status": "started",
-        "message": f"已提交 {len(payload.paths)} 张照片进行分析",
+        "status": "queued",
+        "count": added,
+        "message": f"已提交 {added} 张照片进入分析队列",
     }
 
 
