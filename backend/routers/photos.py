@@ -82,6 +82,34 @@ def serve_photo(filepath: str):
     if not full_path:
         raise HTTPException(status_code=404, detail="Not Found")
 
+    # HEIC/HEIF 自动转码为 JPEG（浏览器不原生支持）
+    ext = PathLib(full_path).suffix.lower()
+    if ext in (".heic", ".heif"):
+        try:
+            from PIL import Image
+            import pillow_heif
+
+            heif_file = pillow_heif.open_heif(full_path)
+            img = Image.frombytes(
+                heif_file.mode,
+                heif_file.size,
+                heif_file.data,
+            )
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=92)
+            buf.seek(0)
+            from fastapi.responses import StreamingResponse
+
+            return StreamingResponse(
+                buf,
+                media_type="image/jpeg",
+                headers={"Cache-Control": "max-age=3600"},
+            )
+        except Exception as e:
+            logger.error(f"HEIC 转码失败 {filepath}: {e}")
+            # 降级：直接返回原文件（浏览器可能不支持）
+            pass
+
     try:
         return FileResponse(full_path, headers={"Cache-Control": "max-age=3600"})
     except Exception as e:

@@ -225,7 +225,7 @@ def get_top_photos(limit=5):
         return [dict(r) for r in rows]
 
 
-def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC"):
+def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC", exclude_skipped=True):
     """获取所有照片"""
     with get_conn() as conn:
         safe_orders = {"analyzed_at DESC", "analyzed_at ASC", "memory_score DESC",
@@ -233,17 +233,19 @@ def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC"):
                        "exif_datetime DESC", "exif_datetime ASC"}
         if order_by not in safe_orders:
             order_by = "analyzed_at DESC"
-        sql = f"SELECT * FROM photo_scores ORDER BY {order_by}"
+        where = "WHERE status != 'skipped'" if exclude_skipped else ""
+        sql = f"SELECT * FROM photo_scores {where} ORDER BY {order_by}"
         if limit:
             sql += f" LIMIT {limit} OFFSET {offset}"
         rows = conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
 
 
-def get_photo_count():
+def get_photo_count(exclude_skipped=True):
     """获取总照片数"""
     with get_conn() as conn:
-        row = conn.execute("SELECT COUNT(*) as cnt FROM photo_scores").fetchone()
+        where = "WHERE status != 'skipped'" if exclude_skipped else ""
+        row = conn.execute(f"SELECT COUNT(*) as cnt FROM photo_scores {where}").fetchone()
         return row["cnt"]
 
 
