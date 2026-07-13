@@ -30,6 +30,7 @@ def gallery(
     order: str = "memory_score DESC",
     type: Optional[str] = "",
     tag: Optional[str] = "",
+    show_skipped: bool = False,
     db=Depends(get_db),
 ):
     """照片库"""
@@ -40,6 +41,8 @@ def gallery(
     if photo_type:
         photos = db.search_photos(photo_type, limit=per_page * 10)
         photos = [p for p in photos if photo_type in (p.get("type") or "")]
+        if not show_skipped:
+            photos = [p for p in photos if p.get("status") != "skipped"]
         total = len(photos)
         photos = photos[(page - 1) * per_page : page * per_page]
     elif current_tag:
@@ -49,11 +52,14 @@ def gallery(
             for p in photos
             if current_tag in [t.strip() for t in (json.loads(p["tags"]) if p.get("tags") else [])]
         ]
+        if not show_skipped:
+            photos = [p for p in photos if p.get("status") != "skipped"]
         total = len(photos)
         photos = photos[(page - 1) * per_page : page * per_page]
     else:
-        total = db.get_photo_count()
-        photos = db.get_all_photos(limit=per_page, offset=(page - 1) * per_page, order_by=order)
+        exclude_skipped = not show_skipped
+        total = db.get_photo_count(exclude_skipped=exclude_skipped)
+        photos = db.get_all_photos(limit=per_page, offset=(page - 1) * per_page, order_by=order, exclude_skipped=exclude_skipped)
 
     total_pages = max(1, (total + per_page - 1) // per_page)
     page = max(1, min(page, total_pages))
@@ -69,6 +75,7 @@ def gallery(
             "current_order": order,
             "current_type": photo_type,
             "current_tag": current_tag,
+            "show_skipped": show_skipped,
         },
     )
 

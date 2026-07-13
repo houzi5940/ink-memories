@@ -9,8 +9,8 @@ services:
     ports:
       - "8765:8765"
     volumes:
-      # 照片目录
-      - /volume1/homes/871669332/Photos:/photos:ro
+      # 照片目录（macOS SMB 挂载 NAS 共享）
+      - /Volumes/home/Photos:/photos:ro
       # 数据持久化
       - ./data:/data
     environment:
