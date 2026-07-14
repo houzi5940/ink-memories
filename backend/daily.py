@@ -101,13 +101,35 @@ def _generate_daily_captions_for_photo(photo: dict) -> tuple[str, str]:
     return caption or "", side or ""
 
 
+def _pick_weighted(candidates: list[dict], count: int, recent: set[str], result: list[dict]) -> int:
+    """从候选中挑选 count 张，优先挑近期未用过的
+
+    Returns: 实际挑选的数量
+    """
+    existing_paths = {p["path"] for p in result}
+    fresh = [p for p in candidates if p["path"] not in recent and p["path"] not in existing_paths]
+    stale = [p for p in candidates if p["path"] in recent and p["path"] not in existing_paths]
+
+    picked = []
+    if fresh:
+        n = min(count, len(fresh))
+        picked = random.sample(fresh, n)
+        count -= n
+    if count > 0 and stale:
+        n = min(count, len(stale))
+        picked.extend(random.sample(stale, n))
+        count -= n
+    result.extend(picked)
+    return len(picked)
+
+
 def choose_photos_for_today(today: datetime = None, count: int = None) -> list[dict]:
     """
     选择今日精选照片
 
     算法：
     1. 查找所有年份同 MM-DD 的照片（memory_score >= 阈值）
-    2. 随机挑选 count 张
+    2. 随机挑选 count 张，优先选 60 天内未用过的
     3. 如果当天没有候选，向前回退最多 365 天
     4. 如果 365 天都没有，从全库最高分中选
     """
@@ -116,15 +138,16 @@ def choose_photos_for_today(today: datetime = None, count: int = None) -> list[d
     if count is None:
         count = config.DAILY_PHOTO_QUANTITY
 
+    # 获取近期（60 天）用过的照片路径
+    recent = database.get_recently_used_paths(days=60)
     result = []
 
     # 策略 1：同月同日（历史上的今天）
     mm_dd = today.strftime("%m-%d")
     candidates = database.get_photos_by_date(mm_dd)
     if candidates:
-        picked = random.sample(candidates, min(count, len(candidates)))
-        result.extend(picked)
-        count -= len(picked)
+        _pick_weighted(candidates, count, recent, result)
+        count = config.DAILY_PHOTO_QUANTITY - len(result)
 
     # 策略 2：向前回退最多 365 天
     if count > 0:
@@ -135,26 +158,15 @@ def choose_photos_for_today(today: datetime = None, count: int = None) -> list[d
                 continue
             candidates = database.get_photos_by_date(target_mm_dd)
             if candidates:
-                picked = random.sample(candidates, min(count, len(candidates)))
-                # 去重
-                existing_paths = {p["path"] for p in result}
-                picked = [p for p in picked if p["path"] not in existing_paths]
-                result.extend(picked)
-                count -= len(picked)
+                n = _pick_weighted(candidates, count, recent, result)
+                count -= n
                 if count <= 0:
                     break
 
     # 策略 3：全库最高分兜底
     if count > 0:
-        top = database.get_top_photos(count * 3)
-        existing_paths = {p["path"] for p in result}
-        for p in top:
-            if count <= 0:
-                break
-            if p["path"] not in existing_paths:
-                result.append(p)
-                existing_paths.add(p["path"])
-                count -= 1
+        top = database.get_top_photos(count * 5)
+        _pick_weighted(top, count, recent, result)
 
     return result
 

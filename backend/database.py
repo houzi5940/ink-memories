@@ -72,6 +72,8 @@ def init_db():
             conn.execute("UPDATE photo_scores SET status = 'failed'  WHERE type = '分析失败'")
             conn.execute("UPDATE photo_scores SET status = 'skipped' WHERE type = '跳过'")
             conn.execute("UPDATE photo_scores SET status = 'done' WHERE status IS NULL")
+        if "last_daily_used" not in columns:
+            conn.execute("ALTER TABLE photo_scores ADD COLUMN last_daily_used TEXT")
 
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_memory_score
@@ -380,7 +382,7 @@ def clear_daily_captions(date: str):
 # ============================================================
 
 def save_daily_selection(date: str, photos: list[dict]):
-    """保存今日精选的照片列表"""
+    """保存今日精选的照片列表（同时记录最近选用时间）"""
     with write_lock():
         with get_conn() as conn:
             conn.execute("DELETE FROM daily_selection WHERE date = ?", (date,))
@@ -388,6 +390,12 @@ def save_daily_selection(date: str, photos: list[dict]):
                 conn.execute(
                     "INSERT OR REPLACE INTO daily_selection (date, path, sort_order) VALUES (?, ?, ?)",
                     (date, p["path"], i),
+                )
+            # 更新 photo_scores 的最近选用时间
+            for p in photos:
+                conn.execute(
+                    "UPDATE photo_scores SET last_daily_used = ? WHERE path = ?",
+                    (date, p["path"]),
                 )
             conn.commit()
 
@@ -409,6 +417,18 @@ def clear_daily_selection(date: str):
             conn.execute("DELETE FROM daily_selection WHERE date = ?", (date,))
             conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
             conn.commit()
+
+
+def get_recently_used_paths(days: int = 60) -> set[str]:
+    """获取最近 N 天被选为今日精选的照片路径"""
+    from datetime import datetime, timedelta
+    with get_conn() as conn:
+        cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        rows = conn.execute(
+            "SELECT path FROM photo_scores WHERE last_daily_used IS NOT NULL AND last_daily_used >= ?",
+            (cutoff,),
+        ).fetchall()
+        return {r["path"] for r in rows}
 
 
 # ============================================================
