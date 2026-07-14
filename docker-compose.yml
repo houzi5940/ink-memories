@@ -14,6 +14,8 @@ services:
       # 数据持久化
       - ./data:/data
     environment:
+      # 时区
+      - TZ=Asia/Shanghai
       # VLM API 配置（根据实际情况修改）
       - VLM_API_URL=${VLM_API_URL:-https://api.deepseek.com/v1/chat/completions}
       - VLM_API_KEY=${VLM_API_KEY:-}
