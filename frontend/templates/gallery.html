@@ -18,11 +18,13 @@
   </div>
   <div class="control-group">
     <span class="label">筛选</span>
-    <a href="/gallery" class="{% if not current_type and not current_tag and not show_skipped %}active{% endif %}">全部</a>
+    <a href="/gallery" class="{% if not selected_types and not current_tag %}active{% endif %}">全部</a>
     {% for t in ["人物","孩子","猫咪","家庭","旅行","风景","美食","宠物","日常"] %}
-    <a href="/gallery?type={{ t }}{% if show_skipped %}&show_skipped=true{% endif %}" class="{% if current_type == t %}active{% endif %}">{{ t }}</a>
+    {% set sep = "," if current_type else "" %}
+    <a href="/gallery?type={% if t in selected_types %}{{ current_type | replace(t, "") | replace(",,", ",") | trim(",") }}{% else %}{{ current_type }}{{ sep }}{{ t }}{% endif %}{% if current_tag %}&tag={{ current_tag }}{% endif %}&order={{ current_order }}"
+       class="{% if t in selected_types %}active{% endif %}">{{ t }}</a>
     {% endfor %}
-    <a href="/gallery?show_skipped=true" class="{% if show_skipped %}active{% endif %}" style="color:{% if show_skipped %}#e74c3c{% endif %}">跳过</a>
+    <a href="/gallery?type=跳过" class="{% if '跳过' in selected_types %}active{% endif %}" style="{% if '跳过' in selected_types %}color:#e74c3c;font-weight:700{% endif %}">跳过</a>
   </div>
   <div class="control-group">
     <span class="label">标签</span>

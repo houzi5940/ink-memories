@@ -163,7 +163,21 @@ def get_daily_summary() -> dict:
     """获取今日精选摘要（带每日全新描述）"""
     today = datetime.now()
     date_str = today.strftime("%Y-%m-%d")
-    photos = choose_photos_for_today(today)
+
+    # 先查今日精选缓存
+    cached_paths = database.get_daily_selection(date_str)
+    if cached_paths:
+        # 从 DB 按路径加载照片数据
+        photos = []
+        for p in cached_paths:
+            photo = database.get_photo_by_path(p)
+            if photo:
+                photos.append(photo)
+    else:
+        # 首次访问：生成今日精选并缓存
+        photos = choose_photos_for_today(today)
+        if photos:
+            database.save_daily_selection(date_str, photos)
 
     # 检查是否有今日的缓存描述
     cached = database.get_daily_captions(date_str)

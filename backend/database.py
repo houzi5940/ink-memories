@@ -97,6 +97,17 @@ def init_db():
                 PRIMARY KEY (photo_path, date)
             )
         """)
+
+        # 每日精选照片缓存（一天内固定不变）
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_selection (
+                date        TEXT NOT NULL,
+                path        TEXT NOT NULL,
+                sort_order  INTEGER NOT NULL DEFAULT 0,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (date, path)
+            )
+        """)
         conn.commit()
 
 
@@ -225,15 +236,25 @@ def get_top_photos(limit=5):
         return [dict(r) for r in rows]
 
 
-def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC", exclude_skipped=True):
-    """获取所有照片"""
+def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC", exclude_skipped=True, status=None):
+    """获取所有照片
+
+    Args:
+        exclude_skipped: 为 True 时排除 status='skipped'（默认）
+        status: 指定只返回某状态的照片（如 'skipped'），与 exclude_skipped 互斥
+    """
     with get_conn() as conn:
         safe_orders = {"analyzed_at DESC", "analyzed_at ASC", "memory_score DESC",
                        "memory_score ASC", "beauty_score DESC", "beauty_score ASC",
                        "exif_datetime DESC", "exif_datetime ASC"}
         if order_by not in safe_orders:
             order_by = "analyzed_at DESC"
-        where = "WHERE status != 'skipped'" if exclude_skipped else ""
+        if status:
+            where = f"WHERE status = '{status}'"
+        elif exclude_skipped:
+            where = "WHERE status != 'skipped'"
+        else:
+            where = ""
         sql = f"SELECT * FROM photo_scores {where} ORDER BY {order_by}"
         if limit:
             sql += f" LIMIT {limit} OFFSET {offset}"
@@ -241,10 +262,20 @@ def get_all_photos(limit=None, offset=0, order_by="analyzed_at DESC", exclude_sk
         return [dict(r) for r in rows]
 
 
-def get_photo_count(exclude_skipped=True):
-    """获取总照片数"""
+def get_photo_count(exclude_skipped=True, status=None):
+    """获取总照片数
+
+    Args:
+        exclude_skipped: 为 True 时排除 status='skipped'（默认）
+        status: 指定只统计某状态的照片（如 'skipped'），与 exclude_skipped 互斥
+    """
     with get_conn() as conn:
-        where = "WHERE status != 'skipped'" if exclude_skipped else ""
+        if status:
+            where = f"WHERE status = '{status}'"
+        elif exclude_skipped:
+            where = "WHERE status != 'skipped'"
+        else:
+            where = ""
         row = conn.execute(f"SELECT COUNT(*) as cnt FROM photo_scores {where}").fetchone()
         return row["cnt"]
 
@@ -340,6 +371,42 @@ def clear_daily_captions(date: str):
     """清除某天的精选描述（用于重新生成）"""
     with write_lock():
         with get_conn() as conn:
+            conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
+            conn.commit()
+
+
+# ============================================================
+# 每日精选照片缓存（一天内固定不变）
+# ============================================================
+
+def save_daily_selection(date: str, photos: list[dict]):
+    """保存今日精选的照片列表"""
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("DELETE FROM daily_selection WHERE date = ?", (date,))
+            for i, p in enumerate(photos):
+                conn.execute(
+                    "INSERT OR REPLACE INTO daily_selection (date, path, sort_order) VALUES (?, ?, ?)",
+                    (date, p["path"], i),
+                )
+            conn.commit()
+
+
+def get_daily_selection(date: str) -> list[str]:
+    """获取今日精选的照片路径（按排序顺序）"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT path FROM daily_selection WHERE date = ? ORDER BY sort_order",
+            (date,),
+        ).fetchall()
+        return [r["path"] for r in rows]
+
+
+def clear_daily_selection(date: str):
+    """清除今日精选缓存（用于每日轮换）"""
+    with write_lock():
+        with get_conn() as conn:
+            conn.execute("DELETE FROM daily_selection WHERE date = ?", (date,))
             conn.execute("DELETE FROM daily_captions WHERE date = ?", (date,))
             conn.commit()
 

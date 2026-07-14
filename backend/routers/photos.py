@@ -254,3 +254,19 @@ def api_review_skip(payload: ReviewPathsPayload):
 
     batch_skip_photos(payload.paths)
     return {"status": "ok", "skipped": len(payload.paths)}
+
+
+# ============================================================
+# 每日精选轮换 API
+# ============================================================
+
+@router.post("/api/daily/refresh")
+def api_daily_refresh():
+    """清除今日精选缓存，下次访问时重新生成"""
+    from datetime import datetime
+    from backend import database
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    database.clear_daily_selection(today)
+    logger.info(f"今日精选缓存已清除，下次访问时将重新生成")
+    return {"status": "ok", "message": f"{today} 精选缓存已清除"}
