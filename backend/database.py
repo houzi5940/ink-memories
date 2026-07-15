@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 import json
 import threading
+import time
 from contextlib import contextmanager
 
 from backend import config
@@ -435,8 +436,13 @@ def get_recently_used_paths(days: int = 60) -> set[str]:
 # 人工审核 - 未评分照片查询
 # ============================================================
 
-def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
-    """扫描 PHOTO_DIR，返回不在 photo_scores 中的照片路径（按 mtime 降序）"""
+# 扫描缓存：避免每次 os.walk NAS 目录（SMB 极慢）
+_scan_cache: dict = {}  # {"candidates": [...], "total": int, "cached_at": float}
+_SCAN_CACHE_TTL = 30  # 秒
+
+
+def _build_scan_cache():
+    """执行全量扫描并缓存结果"""
     import os
     from pathlib import Path
     from backend.config import PHOTO_DIR, SUPPORTED_EXTENSIONS, EXCLUDE_DIRS
@@ -444,9 +450,10 @@ def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
     analyzed = get_analyzed_paths()
     photo_dir = Path(PHOTO_DIR)
     if not photo_dir.exists():
-        return []
+        _scan_cache.clear()
+        return
 
-    candidates: list[tuple[str, float]] = []  # (path, mtime)
+    candidates: list[tuple[str, float]] = []
 
     for root, dirs, files in os.walk(photo_dir):
         dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
@@ -463,15 +470,33 @@ def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
                 mtime = 0
             candidates.append((full_path, mtime))
 
-    # 按修改时间降序（最新的优先展示）
     candidates.sort(key=lambda x: -x[1])
-    total = len(candidates)
+    _scan_cache["candidates"] = candidates
+    _scan_cache["total"] = len(candidates)
+    _scan_cache["cached_at"] = time.time()
+
+
+def invalidate_scan_cache():
+    """清除扫描缓存，下次读取强制重扫"""
+    _scan_cache.clear()
+
+
+def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
+    """返回不在 photo_scores 中的照片路径（使用缓存，避免反复 os.walk）"""
+    import time as _time
+
+    now = _time.time()
+    if not _scan_cache or now - _scan_cache.get("cached_at", 0) > _SCAN_CACHE_TTL:
+        _build_scan_cache()
+
+    candidates = _scan_cache.get("candidates", [])
+    total = _scan_cache.get("total", 0)
     page = candidates[offset : offset + limit]
 
     return [
         {
             "path": path,
-            "date": "",  # 由前端展示时从 EXIF 获取
+            "date": "",
             "type": "",
         }
         for path, _ in page
@@ -479,27 +504,13 @@ def scan_unanalyzed_photos(limit: int = 20, offset: int = 0) -> list[dict]:
 
 
 def get_unanalyzed_count() -> int:
-    """未评分照片总数"""
-    import os
-    from pathlib import Path
-    from backend.config import PHOTO_DIR, SUPPORTED_EXTENSIONS, EXCLUDE_DIRS
+    """未评分照片总数（使用缓存）"""
+    import time as _time
 
-    analyzed = get_analyzed_paths()
-    photo_dir = Path(PHOTO_DIR)
-    if not photo_dir.exists():
-        return 0
-
-    count = 0
-    for root, dirs, files in os.walk(photo_dir):
-        dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
-        for f in files:
-            ext = Path(f).suffix.lower()
-            if ext not in SUPPORTED_EXTENSIONS:
-                continue
-            full_path = str(Path(root) / f)
-            if full_path not in analyzed:
-                count += 1
-    return count
+    now = _time.time()
+    if not _scan_cache or now - _scan_cache.get("cached_at", 0) > _SCAN_CACHE_TTL:
+        _build_scan_cache()
+    return _scan_cache.get("total", 0)
 
 
 def batch_skip_photos(paths: list[str]):
@@ -521,6 +532,7 @@ def batch_skip_photos(paths: list[str]):
                     (path,),
                 )
             conn.commit()
+    invalidate_scan_cache()
 
 
 # ============================================================
@@ -549,6 +561,7 @@ def enqueue_pending(paths: list[str]) -> int:
                 )
                 count += cur.rowcount
             conn.commit()
+    invalidate_scan_cache()
     return count
 
 
