@@ -6,7 +6,7 @@ import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend import config, database
@@ -17,6 +17,49 @@ from backend.dependencies import get_db
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# HEIC→JPEG 磁盘缓存
+_PHOTO_CACHE_DIR = "/data/photo_cache"
+_PHOTO_CACHE_MAX_WIDTH = 1920  # 最大宽边像素
+_PHOTO_CACHE_QUALITY = 85  # JPEG 质量（网格够用即可，比 92 快）
+
+
+def _get_photo_cache_path(source_path: str) -> str | None:
+    """获取缓存 JPEG 路径。返回 None 表示未命中或缓存过期。"""
+    import hashlib
+
+    cache_dir = _PHOTO_CACHE_DIR
+    source_mtime = os.path.getmtime(source_path)
+    cache_key = hashlib.md5(f"{source_path}:{source_mtime}".encode()).hexdigest()
+    cache_path = os.path.join(cache_dir, f"{cache_key}.jpg")
+    if os.path.exists(cache_path):
+        return cache_path
+    return None
+
+
+def _build_photo_cache(source_path: str) -> str:
+    """将 HEIC 解码 + 缩放到合适尺寸 + 缓存到磁盘，返回缓存路径"""
+    import hashlib
+    from PIL import Image
+    import pillow_heif
+
+    heif_file = pillow_heif.open_heif(source_path)
+    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data)
+
+    # 等比缩放
+    w, h = img.size
+    if max(w, h) > _PHOTO_CACHE_MAX_WIDTH:
+        ratio = _PHOTO_CACHE_MAX_WIDTH / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+    # 缓存到磁盘
+    cache_dir = _PHOTO_CACHE_DIR
+    os.makedirs(cache_dir, exist_ok=True)
+    source_mtime = os.path.getmtime(source_path)
+    cache_key = hashlib.md5(f"{source_path}:{source_mtime}".encode()).hexdigest()
+    cache_path = os.path.join(cache_dir, f"{cache_key}.jpg")
+    img.save(cache_path, format="JPEG", quality=_PHOTO_CACHE_QUALITY)
+    return cache_path
 
 def create_background_task(coro, task_name: str):
     task = asyncio.create_task(coro)
@@ -82,29 +125,16 @@ def serve_photo(filepath: str):
     if not full_path:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    # HEIC/HEIF 自动转码为 JPEG（浏览器不原生支持）
+    # HEIC/HEIF 自动转码为 JPEG（浏览器不原生支持），使用磁盘缓存
     ext = PathLib(full_path).suffix.lower()
     if ext in (".heic", ".heif"):
         try:
-            from PIL import Image
-            import pillow_heif
+            cache_path = _get_photo_cache_path(full_path)
+            if cache_path:
+                return FileResponse(cache_path, headers={"Cache-Control": "max-age=3600"})
 
-            heif_file = pillow_heif.open_heif(full_path)
-            img = Image.frombytes(
-                heif_file.mode,
-                heif_file.size,
-                heif_file.data,
-            )
-            buf = BytesIO()
-            img.save(buf, format="JPEG", quality=92)
-            buf.seek(0)
-            from fastapi.responses import StreamingResponse
-
-            return StreamingResponse(
-                buf,
-                media_type="image/jpeg",
-                headers={"Cache-Control": "max-age=3600"},
-            )
+            cache_path = _build_photo_cache(full_path)
+            return FileResponse(cache_path, headers={"Cache-Control": "max-age=3600"})
         except Exception as e:
             logger.error(f"HEIC 转码失败 {filepath}: {e}")
             # 降级：直接返回原文件（浏览器可能不支持）

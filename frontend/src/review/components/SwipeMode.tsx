@@ -308,17 +308,17 @@ function SwipeCard({
       onClick={handleClick}
     >
       <div ref={labelRef} className="relative">
-        <div className="w-full aspect-[4/3] relative bg-gray-100">
+        <div className="w-full relative bg-gray-100">
           {!imgLoaded && (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-5xl">
+            <div className="aspect-[4/3] flex items-center justify-center text-gray-300 text-5xl">
               📷
             </div>
           )}
           <img
             src={thumbUrl}
             alt=""
-            className={`w-full h-full object-cover transition-opacity duration-300 ${
-              imgLoaded ? 'opacity-100' : 'opacity-0'
+            className={`w-full h-auto block transition-opacity duration-300 ${
+              imgLoaded ? 'opacity-100' : 'opacity-0 absolute inset-0'
             }`}
             onLoad={() => setImgLoaded(true)}
             onError={() => setImgLoaded(true)}
