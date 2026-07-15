@@ -55,7 +55,7 @@ export function SwipeMode({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 pb-20">
       {/* Progress dots */}
       <div className="flex justify-center gap-1.5 px-4">
         {photos.slice(0, Math.min(photos.length, 30)).map((_, i) => (
