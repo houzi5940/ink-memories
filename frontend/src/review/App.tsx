@@ -176,6 +176,10 @@ export function App() {
       // 乐观更新：立即从页面移除已处理的照片，不阻塞等待
       setPhotos((prev) => prev.filter((p) => !currentPaths.includes(p.path)))
 
+      // 提交后重置滑动状态
+      setSwipeIndex(0)
+      setSwipeHistory([])
+
       // 后台静默刷新（不触发 loading 动画）
       // 如果当前页空了，从第 0 页开始重新加载
       const remainingAfterRemove = photos.filter((p) => !currentPaths.includes(p.path)).length
