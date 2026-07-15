@@ -14,6 +14,9 @@
 - **相似照片去重** — 基于感知哈希自动识别重复照片，降分处理
 - **分析进度条** — 实时显示分析进度和统计（成功/失败数）
 - **增量分析** — 已分析的照片自动跳过，可随时中断重启
+- **审核性能优化** — 扫描结果 30 秒缓存，HEIC 转 JPEG 磁盘缓存，提交后乐观更新不卡加载
+- **每日精选缓存** — 一天内固定不变，60 天内不重复，每日凌晨 3 点自动轮换
+- **相册多选筛选** — 类型支持多选（OR 匹配），默认隐藏跳过照片
 
 ## 🚀 快速开始
 
@@ -53,6 +56,19 @@ sudo docker exec ink-memories python cli.py analyze -j 4 -n 100
 ### 4. 访问 WebUI
 
 浏览器打开 `http://your-nas-ip:8765`
+
+## 📖 更多文档
+
+| 文档 | 说明 |
+|------|------|
+| [Getting Started](wiki/Getting-Started.md) | 快速上手 |
+| [Deployment](wiki/Deployment.md) | 部署到群晖 NAS |
+| [Architecture](wiki/Architecture.md) | 系统架构 |
+| [Analysis Pipeline](wiki/Analysis-Pipeline.md) | 照片分析流程详解 |
+| [API Reference](wiki/API-Reference.md) | API 接口文档 |
+| [Scoring](wiki/Scoring.md) | 评分体系 |
+| [Development](wiki/Development.md) | 本地开发指南 |
+| [Performance](wiki/Performance-Optimization.md) | 性能优化与交互优化 |
 
 ## 📁 项目结构
 
@@ -147,6 +163,7 @@ ink-memories/
 | `POST` | `/api/review/skip` | 跳过未选中照片 |
 | `GET` | `/api/tags` | 标签列表 |
 | `GET` | `/api/status` | 系统状态 |
+| `POST` | `/api/daily/refresh` | 刷新今日精选缓存（每日轮换） |
 
 ## 🔄 定时任务
 
