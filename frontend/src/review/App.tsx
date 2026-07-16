@@ -63,6 +63,17 @@ export function App() {
     }
   }, [])
 
+  // 静默刷新（不触发 loading 动画）
+  const silentReload = React.useCallback(async (lim: number, off: number) => {
+    try {
+      const res = await fetchUnanalyzedPhotos(lim, off)
+      setPhotos(res.photos)
+      setTotal(res.total)
+    } catch {
+      // 静默失败，保留当前数据
+    }
+  }, [])
+
   React.useEffect(() => {
     loadPhotos(batchSize, page * batchSize)
   }, [batchSize, page, loadPhotos])
@@ -162,14 +173,24 @@ export function App() {
         return next
       })
 
-      // Reload current batch
-      loadPhotos(batchSize, page * batchSize)
+      // 乐观更新：立即从页面移除已处理的照片，不阻塞等待
+      setPhotos((prev) => prev.filter((p) => !currentPaths.includes(p.path)))
+
+      // 提交后重置滑动状态
+      setSwipeIndex(0)
+      setSwipeHistory([])
+
+      // 后台静默刷新（不触发 loading 动画）
+      // 如果当前页空了，从第 0 页开始重新加载
+      const remainingAfterRemove = photos.filter((p) => !currentPaths.includes(p.path)).length
+      const nextPage = remainingAfterRemove === 0 ? 0 : page
+      silentReload(batchSize, nextPage * batchSize)
     } catch (e: any) {
       setError(e.message || '提交失败')
     } finally {
       setSubmitting(false)
     }
-  }, [selected, photos, submitting, batchSize, page, loadPhotos])
+  }, [selected, photos, submitting, batchSize, page, silentReload])
 
   // Mode change
   const changeMode = React.useCallback((m: ReviewMode) => {

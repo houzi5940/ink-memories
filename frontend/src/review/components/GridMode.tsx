@@ -44,9 +44,9 @@ function GridCard({
       }`}
       onClick={() => onToggle(photo.path)}
     >
-      <div className="w-full aspect-square relative bg-gray-100">
+      <div className="w-full relative bg-gray-100">
         {!loaded && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-3xl">
+          <div className="aspect-square flex items-center justify-center text-gray-300 text-3xl">
             📷
           </div>
         )}
@@ -55,8 +55,8 @@ function GridCard({
           src={thumbUrl}
           alt=""
           loading="lazy"
-          className={`w-full h-full object-cover transition-opacity duration-300 ${
-            loaded ? 'opacity-100' : 'opacity-0'
+          className={`w-full h-auto block transition-opacity duration-300 ${
+            loaded ? 'opacity-100' : 'opacity-0 absolute inset-0'
           }`}
           onLoad={() => setLoaded(true)}
           onError={(e) => {

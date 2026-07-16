@@ -143,14 +143,14 @@ function MonthCard({
 
   return (
     <div
-      className={`relative rounded-xl overflow-hidden aspect-square cursor-pointer active:scale-95 transition-all ${
+      className={`relative rounded-xl overflow-hidden bg-gray-100 cursor-pointer active:scale-95 transition-all ${
         selected ? 'ring-2 ring-blue-500 ring-offset-1' : ''
       }`}
       onClick={() => onToggle(photo.path)}
     >
-      <div className="w-full h-full bg-gray-100 relative">
+      <div className="w-full relative">
         {!loaded && (
-          <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-lg">
+          <div className="aspect-square flex items-center justify-center text-gray-300 text-lg">
             📷
           </div>
         )}
@@ -158,8 +158,8 @@ function MonthCard({
           src={thumbUrl}
           alt=""
           loading="lazy"
-          className={`w-full h-full object-cover transition-opacity ${
-            loaded ? 'opacity-100' : 'opacity-0'
+          className={`w-full h-auto block transition-opacity ${
+            loaded ? 'opacity-100' : 'opacity-0 absolute inset-0'
           }`}
           onLoad={() => setLoaded(true)}
           onError={() => setLoaded(true)}

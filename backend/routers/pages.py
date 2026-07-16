@@ -27,7 +27,7 @@ def index(request: Request, db=Depends(get_db)):
 def gallery(
     request: Request,
     page: int = 1,
-    order: str = "memory_score DESC",
+    order: str = "analyzed_at DESC",
     type: Optional[str] = "",
     tag: Optional[str] = "",
     db=Depends(get_db),
