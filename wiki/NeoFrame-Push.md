@@ -53,11 +53,15 @@ graph LR
 
 ## 配置
 
-脚本自动读取 InkMemories 的 `.env` 文件：
+脚本自动读取 InkMemories 的 `.env` 文件，也可以在环境中直接设置：
 
 | 环境变量 | 说明 | 默认值 |
 |----------|------|--------|
 | `NEOFRAME_HOST` | NeoFrame IP 地址 | `192.168.1.248` |
+| `NAS_USER` | NAS SMB 用户名 | `username` |
+| `NAS_PASS` | NAS SMB 密码 | (空) |
+| `NAS_HOST` | NAS IP 地址 | `192.168.1.244` |
+| `NAS_SHARE` | SMB 共享名 | `homes` |
 | `INKMEMORIES_URL` | InkMemories 首页 URL | `http://localhost:8765` |
 
 也可直接在 `push_to_ink.py` 顶部修改默认值。
