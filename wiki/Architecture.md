@@ -58,6 +58,7 @@ ink-memories/
 │   │   │   └── components/ (GridMode / SwipeMode / MonthMode)
 │   ├── templates/        # Jinja2 模板
 │   └── static/           # 样式 + 构建产物
+├── push_to_ink.py        # NeoFrame 电子相框推送脚本
 └── cli.py                # 项目入口
 ```
 

@@ -127,10 +127,25 @@ def _nearest(r, g, b):
     return PALETTE[min(range(6), key=lambda i: _lab_dist(lab, _PALETTE_LAB[i]))]
 
 def _dither(img: Image.Image) -> Image.Image:
-    """Floyd-Steinberg 抖动"""
+    """Floyd-Steinberg 抖动（对比度 1.2 + 饱和度增强）"""
     img = img.convert("RGB")
     w, h = img.size
     p = img.load()
+
+    # 对比度 1.2 + 饱和度 1.3（让 6 色更明显）
+    for y in range(h):
+        for x in range(w):
+            r, g, b = p[x, y]
+            # 对比度
+            r = max(0, min(255, int((r-128)*1.2+128)))
+            g = max(0, min(255, int((g-128)*1.2+128)))
+            b = max(0, min(255, int((b-128)*1.2+128)))
+            # 饱和度增强（简单方法：加大 RGB 之间的差距）
+            gray = (r + g + b) / 3
+            r = max(0, min(255, int(gray + (r-gray)*1.3)))
+            g = max(0, min(255, int(gray + (g-gray)*1.3)))
+            b = max(0, min(255, int(gray + (b-gray)*1.3)))
+            p[x, y] = (r, g, b)
 
     # F-S
     er, eg, eb = [0.0]*w, [0.0]*w, [0.0]*w
