@@ -52,7 +52,16 @@ logger = logging.getLogger("daily")
 DB_PATH = PROJECT_DIR / "data" / "photos.db"
 MEMORY_THRESHOLD = 70.0   # 最低回忆分
 DAILY_QUANTITY = 1        # 每日推送张数
-NEOFRAME_HOST = "192.168.1.248"
+
+# NAS 配置（从环境变量读取，默认值用于局域网本地开发）
+NEOFRAME_HOST = os.environ.get("NEOFRAME_HOST", "192.168.1.248")
+NAS_USER    = os.environ.get("NAS_USER", "username")
+NAS_PASS    = os.environ.get("NAS_PASS", "")
+NAS_HOST    = os.environ.get("NAS_HOST", "192.168.1.244")
+NAS_SHARE   = os.environ.get("NAS_SHARE", "homes")
+NAS_USER_ID = os.environ.get("NAS_USER_ID", NAS_USER)  # SMB UID，默认与用户名相同
+NAS_MOUNT   = Path(os.environ.get("NAS_MOUNT", "/tmp/nas_homes"))
+NAS_PHOTO   = NAS_MOUNT / NAS_USER_ID / "Photos"
 
 # 7.3 寸 6 色墨水屏
 W, H = 480, 800
@@ -73,7 +82,7 @@ def _ensure_nas() -> Optional[Path]:
         try: next(NAS_PHOTO.iterdir()); return NAS_PHOTO
         except: pass
     NAS_MOUNT.mkdir(parents=True, exist_ok=True)
-    os.system(f'mount_smbfs //871669332:<SMB_PASSWORD>@192.168.1.244/homes "{NAS_MOUNT}" 2>/dev/null')
+    os.system(f'mount_smbfs //{NAS_USER}:{NAS_PASS}@{NAS_HOST}/{NAS_SHARE} "{NAS_MOUNT}" 2>/dev/null')
     return NAS_PHOTO if NAS_PHOTO.exists() else None
 
 def _nas_path(docker_path: str) -> Path:
