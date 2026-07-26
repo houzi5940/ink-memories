@@ -71,9 +71,6 @@ TEXT_AREA_H = 220
 # 字体
 FONT_PATH = "/System/Library/Fonts/STHeiti Medium.ttc"
 
-# NAS 路径映射
-NAS_MOUNT = Path("/tmp/nas_homes")
-NAS_PHOTO = NAS_MOUNT / "871669332" / "Photos"
 
 # ══ NAS 挂载 ═══════════════════════════════════════════════════
 
