@@ -52,7 +52,16 @@ logger = logging.getLogger("daily")
 DB_PATH = PROJECT_DIR / "data" / "photos.db"
 MEMORY_THRESHOLD = 70.0   # 最低回忆分
 DAILY_QUANTITY = 1        # 每日推送张数
-NEOFRAME_HOST = "192.168.1.248"
+
+# NAS 配置（从环境变量读取，默认值用于局域网本地开发）
+NEOFRAME_HOST = os.environ.get("NEOFRAME_HOST", "192.168.1.248")
+NAS_USER    = os.environ.get("NAS_USER", "username")
+NAS_PASS    = os.environ.get("NAS_PASS", "")
+NAS_HOST    = os.environ.get("NAS_HOST", "192.168.1.244")
+NAS_SHARE   = os.environ.get("NAS_SHARE", "homes")
+NAS_USER_ID = os.environ.get("NAS_USER_ID", NAS_USER)  # SMB UID，默认与用户名相同
+NAS_MOUNT   = Path(os.environ.get("NAS_MOUNT", "/tmp/nas_homes"))
+NAS_PHOTO   = NAS_MOUNT / NAS_USER_ID / "Photos"
 
 # 7.3 寸 6 色墨水屏
 W, H = 480, 800
@@ -62,9 +71,6 @@ TEXT_AREA_H = 220
 # 字体
 FONT_PATH = "/System/Library/Fonts/STHeiti Medium.ttc"
 
-# NAS 路径映射
-NAS_MOUNT = Path("/tmp/nas_homes")
-NAS_PHOTO = NAS_MOUNT / "871669332" / "Photos"
 
 # ══ NAS 挂载 ═══════════════════════════════════════════════════
 
@@ -73,7 +79,7 @@ def _ensure_nas() -> Optional[Path]:
         try: next(NAS_PHOTO.iterdir()); return NAS_PHOTO
         except: pass
     NAS_MOUNT.mkdir(parents=True, exist_ok=True)
-    os.system(f'mount_smbfs //871669332:Mk990310-@192.168.1.244/homes "{NAS_MOUNT}" 2>/dev/null')
+    os.system(f'mount_smbfs //{NAS_USER}:{NAS_PASS}@{NAS_HOST}/{NAS_SHARE} "{NAS_MOUNT}" 2>/dev/null')
     return NAS_PHOTO if NAS_PHOTO.exists() else None
 
 def _nas_path(docker_path: str) -> Path:
@@ -127,10 +133,25 @@ def _nearest(r, g, b):
     return PALETTE[min(range(6), key=lambda i: _lab_dist(lab, _PALETTE_LAB[i]))]
 
 def _dither(img: Image.Image) -> Image.Image:
-    """Floyd-Steinberg 抖动"""
+    """Floyd-Steinberg 抖动（对比度 1.2 + 饱和度增强）"""
     img = img.convert("RGB")
     w, h = img.size
     p = img.load()
+
+    # 对比度 1.2 + 饱和度 1.3（让 6 色更明显）
+    for y in range(h):
+        for x in range(w):
+            r, g, b = p[x, y]
+            # 对比度
+            r = max(0, min(255, int((r-128)*1.2+128)))
+            g = max(0, min(255, int((g-128)*1.2+128)))
+            b = max(0, min(255, int((b-128)*1.2+128)))
+            # 饱和度增强（简单方法：加大 RGB 之间的差距）
+            gray = (r + g + b) / 3
+            r = max(0, min(255, int(gray + (r-gray)*1.3)))
+            g = max(0, min(255, int(gray + (g-gray)*1.3)))
+            b = max(0, min(255, int(gray + (b-gray)*1.3)))
+            p[x, y] = (r, g, b)
 
     # F-S
     er, eg, eb = [0.0]*w, [0.0]*w, [0.0]*w

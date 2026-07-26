@@ -83,6 +83,17 @@ python cli.py analyze -j 4 -n 100
 python cli.py daily
 ```
 
+### `push-to-neoframe` — 推送今日精选至 NeoFrame 墨水屏
+
+```bash
+# 推送今日精选照片至 NeoFrame ESP32-S3 电子相框
+python push_to_ink.py
+```
+
+> 该脚本将今日精选照片转换为 6 色 e-ink 调色板（黑/白/红/黄/蓝/绿），
+> 经过 Floyd-Steinberg 抖动（对比度 1.2× + 饱和度 1.3× 增强）后，
+> 通过 HTTP POST 上传至 NeoFrame 显示。
+
 ### `backfill-hashes` — 为旧数据回刷感知哈希
 
 ```bash

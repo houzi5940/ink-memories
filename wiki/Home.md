@@ -15,4 +15,5 @@ InkMemories 是一个 AI 驱动的照片回忆系统，运行在群晖 NAS 上�
 | [Scoring](Scoring) | AI 评分标准、去重算法 |
 | [Deployment](Deployment) | 部署指南（群晖 NAS） |
 | [Development](Development) | 本地开发环境搭建 |
-| [FAQ](FAQ) | 常见问题 |
+| [Performance](Performance-Optimization) | 性能优化与交互优化 |
+| [NeoFrame Push](NeoFrame-Push) | NeoFrame 墨水屏推送 |

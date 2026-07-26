@@ -6,8 +6,9 @@
 
 - **AI 智能评分** — 双维度评分（回忆值 + 美观值），自动分类（人物/旅行/猫咪/美食…）
 - **人工审核** — 平铺勾选 / 滑动选择(Tinder风格) / 按月浏览三种模式，节省 token 消耗，只对精选照片执行 VLM 评分
-- **诗意旁白** — 为每张照片生成一句话文案
+- **诗意旁白** — 为每张照片生成一句话文案（8-20 字短旁白 + 30-60 字长描述）
 - **每日精选** — 从「历史上的今天」中选出最值得回忆的照片，每日全新描述
+- **NeoFrame 电子相框推送** — 将每日精选推送至 ESP32-S3 墨水屏相框，6 色 Floyd-Steinberg 抖动渲染
 - **WebUI 浏览** — 按类型、评分、日期浏览，支持搜索描述/标签
 - **手动编辑** — 在线修改评分、分类、旁白、描述、标签
 - **标签系统** — React 标签选择器，支持搜索已有标签和新建标签（shadcn/ui + lucide-react）
@@ -117,6 +118,8 @@ ink-memories/
 │   ├── package.json
 │   └── vite.config.ts
 ├── cli.py                      # 项目入口（委托给 backend.cli）
+├── push_to_ink.py              # NeoFrame 电子相框推送脚本
+├── seed_local.py               # 本地测试种子数据生成
 ├── Dockerfile                  # 多阶段构建
 ├── docker-compose.yml
 ├── .env.example                # 环境变量模板
@@ -157,7 +160,7 @@ ink-memories/
 | `GET` | `/api/analyze/progress` | 分析进度轮询（含队列 pending/analyzing） |
 | `GET` | `/api/photo/detail` | 照片详情 |
 | `POST` | `/api/photo/update` | 编辑照片 |
-| `POST` | `/api/photo/analyze` | 重新分析单张照片（入队） |
+| `POST` | `/api/photo/analyze` | 重新分析单张照片（重新入队） |
 | `GET` | `/api/review/photos` | 未评分照片列表（分页） |
 | `POST` | `/api/review/submit` | 提交选中照片入分析队列 |
 | `POST` | `/api/review/skip` | 跳过未选中照片 |
